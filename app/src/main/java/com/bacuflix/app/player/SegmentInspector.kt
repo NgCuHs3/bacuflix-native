@@ -11,7 +11,7 @@ object SegmentInspector {
     private val PNG_SIGNATURE = byteArrayOf(
         137.toByte(), 80, 78, 71, 13, 10, 26, 10
     )
-    private const val TS_PACKET_SIZE = 188
+    const val TS_PACKET_SIZE = 188
 
     enum class SegmentKind {
         MPEG_TS,
@@ -44,12 +44,38 @@ object SegmentInspector {
         }
 
         if (!hasSignature(bytes, PNG_SIGNATURE)) {
+            val syncStart = findAlignedTsSyncOffset(bytes, 0, bytes.size)
+            if (syncStart > 0) {
+                val recovered = bytes.copyOfRange(syncStart, bytes.size)
+                return InspectionResult(
+                    kind = SegmentKind.PNG_WRAPPED_MPEG_TS,
+                    data = recovered,
+                    pngBytes = syncStart,
+                    transportStreamBytes = recovered.size
+                )
+            }
             return InspectionResult(SegmentKind.UNKNOWN, bytes)
         }
 
-        val trailerStart = findPngTrailerStart(bytes)
+        val trailerStart = try {
+            findPngTrailerStart(bytes, bytes.size)
+        } catch (e: Exception) {
+            val fallbackSync = findAlignedTsSyncOffset(bytes, PNG_SIGNATURE.size, bytes.size)
+            if (fallbackSync > 0) fallbackSync else throw e
+        }
+
         val trailerLength = bytes.size - trailerStart
         if (!validateTransportStream(bytes, trailerStart, trailerLength)) {
+            val alignedSync = findAlignedTsSyncOffset(bytes, trailerStart, bytes.size)
+            if (alignedSync >= trailerStart) {
+                val recovered = bytes.copyOfRange(alignedSync, bytes.size)
+                return InspectionResult(
+                    kind = SegmentKind.PNG_WRAPPED_MPEG_TS,
+                    data = recovered,
+                    pngBytes = alignedSync,
+                    transportStreamBytes = recovered.size
+                )
+            }
             throw IllegalArgumentException("PNG segment has no valid trailing MPEG-TS payload.")
         }
 
@@ -62,12 +88,88 @@ object SegmentInspector {
         )
     }
 
-    private fun hasSignature(bytes: ByteArray, signature: ByteArray): Boolean {
-        if (bytes.size < signature.size) return false
+    /**
+     * Inspects an initial peek buffer (e.g. first 64 KB of a segment) without loading the entire
+     * segment into RAM, returning the byte offset where the actual media payload begins (0 if no
+     * disguised header needs stripping).
+     */
+    fun findPayloadStartOffsetInPrefix(buffer: ByteArray, length: Int): Int {
+        if (length < 8) return 0
+
+        // Standard MPEG-TS starting with 0x47
+        if ((buffer[0].toInt() and 0xFF) == 0x47 &&
+            (length < TS_PACKET_SIZE + 1 || (buffer[TS_PACKET_SIZE].toInt() and 0xFF) == 0x47)
+        ) {
+            return 0
+        }
+
+        // Standard HLS playlist (#EXTM3U) or WebVTT (WEBVTT) or ID3
+        if ((buffer[0] == '#'.code.toByte() && buffer[1] == 'E'.code.toByte()) ||
+            (buffer[0] == 'W'.code.toByte() && buffer[1] == 'E'.code.toByte()) ||
+            (buffer[0] == 'I'.code.toByte() && buffer[1] == 'D'.code.toByte() && buffer[2] == '3'.code.toByte())
+        ) {
+            return 0
+        }
+
+        // Standard Fragmented MP4 / MP4 box
+        val boxType = chunkName(buffer, 4)
+        if (boxType == "ftyp" || boxType == "styp" || boxType == "moof" || boxType == "mdat") {
+            return 0
+        }
+
+        // PNG-wrapped MPEG-TS segment
+        if (hasSignature(buffer, PNG_SIGNATURE, length)) {
+            try {
+                val iendEnd = findPngTrailerStart(buffer, length)
+                if (iendEnd in 1 until length) {
+                    if ((buffer[iendEnd].toInt() and 0xFF) == 0x47) {
+                        return iendEnd
+                    }
+                    val aligned = findAlignedTsSyncOffset(buffer, iendEnd, length)
+                    if (aligned >= iendEnd) {
+                        return aligned
+                    }
+                }
+            } catch (_: Exception) {
+                // Fall through to TS sync alignment scan
+            }
+        }
+
+        // Fallback: scan prefix for 3 consecutive 188-byte-aligned 0x47 MPEG-TS sync bytes
+        val syncOffset = findAlignedTsSyncOffset(buffer, 0, length)
+        return if (syncOffset > 0) syncOffset else 0
+    }
+
+    fun hasPngSignature(bytes: ByteArray, length: Int = bytes.size): Boolean {
+        return hasSignature(bytes, PNG_SIGNATURE, length)
+    }
+
+    private fun hasSignature(bytes: ByteArray, signature: ByteArray, limit: Int = bytes.size): Boolean {
+        if (limit < signature.size || bytes.size < signature.size) return false
         for (i in signature.indices) {
             if (bytes[i] != signature[i]) return false
         }
         return true
+    }
+
+    private fun findAlignedTsSyncOffset(bytes: ByteArray, startOffset: Int, limit: Int): Int {
+        val safeLimit = min(limit, bytes.size)
+        val safeStart = startOffset.coerceAtLeast(0)
+        // Require at least 2 full TS packets (376 bytes) to verify 0x47 sync byte alignment
+        val maxSearch = safeLimit - TS_PACKET_SIZE * 2
+        if (maxSearch < safeStart) return -1
+
+        for (pos in safeStart..maxSearch) {
+            if ((bytes[pos].toInt() and 0xFF) == 0x47 &&
+                (bytes[pos + TS_PACKET_SIZE].toInt() and 0xFF) == 0x47
+            ) {
+                val thirdPos = pos + TS_PACKET_SIZE * 2
+                if (thirdPos >= safeLimit || (bytes[thirdPos].toInt() and 0xFF) == 0x47) {
+                    return pos
+                }
+            }
+        }
+        return -1
     }
 
     private fun readUint32(bytes: ByteArray, offset: Int): Long {
@@ -79,6 +181,7 @@ object SegmentInspector {
     }
 
     private fun chunkName(bytes: ByteArray, offset: Int): String {
+        if (offset < 0 || offset + 4 > bytes.size) return ""
         return String(
             charArrayOf(
                 (bytes[offset].toInt() and 0xFF).toChar(),
@@ -96,7 +199,10 @@ object SegmentInspector {
     }
 
     private fun validateTransportStream(bytes: ByteArray, startOffset: Int, length: Int): Boolean {
-        if (length < TS_PACKET_SIZE * 2 || length % TS_PACKET_SIZE != 0) {
+        if (startOffset < 0 || length < TS_PACKET_SIZE * 2 || startOffset + length > bytes.size) {
+            return false
+        }
+        if (length % TS_PACKET_SIZE != 0) {
             return false
         }
         val packetCount = min(5, length / TS_PACKET_SIZE)
@@ -109,15 +215,16 @@ object SegmentInspector {
         return true
     }
 
-    private fun findPngTrailerStart(bytes: ByteArray): Int {
+    private fun findPngTrailerStart(bytes: ByteArray, limit: Int): Int {
+        val safeLimit = min(limit, bytes.size)
         var offset = PNG_SIGNATURE.size
         var foundHeader = false
 
-        while (offset + 12 <= bytes.size) {
+        while (offset + 12 <= safeLimit) {
             val lengthLong = readUint32(bytes, offset)
             val typeOffset = offset + 4
             val payloadOffset = typeOffset + 4
-            if (lengthLong > (bytes.size - payloadOffset - 4).toLong() || lengthLong < 0) {
+            if (lengthLong > (safeLimit - payloadOffset - 4).toLong() || lengthLong < 0) {
                 throw IllegalArgumentException("PNG chunk extends beyond the segment boundary.")
             }
             val length = lengthLong.toInt()

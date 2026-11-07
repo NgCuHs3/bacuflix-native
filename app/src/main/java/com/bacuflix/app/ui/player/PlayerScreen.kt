@@ -74,6 +74,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -172,19 +173,23 @@ fun PlayerScreen(
     val currentEpIdx = currentMovie.currentEpisodeIndex
     val hasPrevEpisode = episodes.isNotEmpty() && currentEpIdx > 0
     val hasNextEpisode = episodes.isNotEmpty() && currentEpIdx < episodes.lastIndex
+    var lastSavedSec by remember(currentMovie.id) { mutableIntStateOf(-1) }
 
-    fun saveCurrentProgress() {
+    fun saveCurrentProgress(force: Boolean = false) {
         if (useWebViewEmbed) return
         val curSec = (positionMs / 1000L).toInt()
         val durSec = (durationMs / 1000L).toInt()
-        if (curSec > 2) {
-            onSaveProgress(currentMovie, curSec, durSec)
+        if (curSec > 2 && (force || kotlin.math.abs(curSec - lastSavedSec) >= 5)) {
+            lastSavedSec = curSec
+            try {
+                onSaveProgress(currentMovie, curSec, durSec)
+            } catch (_: Exception) {}
         }
     }
 
     fun switchToEpisode(targetIndex: Int) {
         if (targetIndex !in episodes.indices) return
-        saveCurrentProgress()
+        saveCurrentProgress(force = true)
         val ep = episodes[targetIndex]
         val m3u8 = ep.m3u8.trim()
         val embed = ep.fallbackEmbed.trim()
@@ -210,46 +215,52 @@ fun PlayerScreen(
     }
 
     fun performRelativeSeek(deltaSeconds: Int) {
-        val player = PlayerController.getOrCreatePlayer(context)
-        val curSec = player.currentPosition / 1000.0
-        val durSec = if (player.duration > 0) player.duration / 1000.0 else Double.NaN
-        val targetSec = SeekController.computeRelativeSeekTarget(curSec, durSec, deltaSeconds.toDouble())
-        val targetMs = (targetSec * 1000.0).toLong().coerceAtLeast(0L)
-        player.seekTo(targetMs)
-        positionMs = targetMs
+        try {
+            val player = PlayerController.getOrCreatePlayer(context)
+            val curSec = player.currentPosition / 1000.0
+            val durSec = if (player.duration > 0) player.duration / 1000.0 else Double.NaN
+            val targetSec = SeekController.computeRelativeSeekTarget(curSec, durSec, deltaSeconds.toDouble())
+            val targetMs = (targetSec * 1000.0).toLong().coerceAtLeast(0L)
+            player.seekTo(targetMs)
+            positionMs = targetMs
+        } catch (_: Exception) {}
     }
 
     fun adjustVolume(delta: Float) {
-        val player = PlayerController.getOrCreatePlayer(context)
-        val nextVol = (playerVolume + delta).coerceIn(0f, 1f)
-        playerVolume = nextVol
-        player.volume = nextVol
-        volumeHudVisible = true
-        volumeHudTick++
-        lastInteractionTick++
+        try {
+            val player = PlayerController.getOrCreatePlayer(context)
+            val nextVol = (playerVolume + delta).coerceIn(0f, 1f)
+            playerVolume = nextVol
+            player.volume = nextVol
+            volumeHudVisible = true
+            volumeHudTick++
+            lastInteractionTick++
+        } catch (_: Exception) {}
     }
 
     fun toggleFullscreenOrientation() {
         val act = activity ?: return
         isFullscreenLandscape = !isFullscreenLandscape
-        act.requestedOrientation = if (isFullscreenLandscape) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-        val window = act.window
-        val controller = WindowCompat.getInsetsController(window, window.decorView)
-        if (isFullscreenLandscape) {
-            controller.hide(WindowInsetsCompat.Type.systemBars())
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        } else {
-            controller.show(WindowInsetsCompat.Type.systemBars())
-        }
+        try {
+            act.requestedOrientation = if (isFullscreenLandscape) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+            val window = act.window
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            if (isFullscreenLandscape) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        } catch (_: Exception) {}
     }
 
     BackHandler {
-        saveCurrentProgress()
+        saveCurrentProgress(force = true)
         if (isFullscreenLandscape) {
             toggleFullscreenOrientation()
         }
@@ -262,7 +273,7 @@ fun PlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    saveCurrentProgress()
+                    saveCurrentProgress(force = true)
                     if (activity?.isChangingConfigurations != true) {
                         // Detach PlayerView surface before SurfaceView destruction so ExoPlayer
                         // continues playing audio in the background without surface errors.
@@ -272,10 +283,12 @@ fun PlayerScreen(
                 }
                 Lifecycle.Event.ON_START -> {
                     PlayerController.setBackgroundMode(false)
-                    val targetPlayer = PlayerController.getOrCreatePlayer(context)
-                    if (playerViewRef?.player !== targetPlayer) {
-                        playerViewRef?.player = targetPlayer
-                    }
+                    try {
+                        val targetPlayer = PlayerController.getOrCreatePlayer(context)
+                        if (playerViewRef?.player !== targetPlayer) {
+                            playerViewRef?.player = targetPlayer
+                        }
+                    } catch (_: Exception) {}
                 }
                 else -> {}
             }
@@ -287,36 +300,44 @@ fun PlayerScreen(
     }
 
     DisposableEffect(Unit) {
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        try {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } catch (_: Exception) {}
         onDispose {
-            saveCurrentProgress()
+            saveCurrentProgress(force = true)
             playerViewRef?.player = null
             playerViewRef = null
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            activity?.let { act ->
-                act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            }
+            try {
+                activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                activity?.let { act ->
+                    act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                }
+            } catch (_: Exception) {}
             PlayerController.onNextEpisodeCallback = null
             PlayerController.onPreviousEpisodeCallback = null
             PlayerController.stopAndRelease(context)
         }
     }
 
+    val currentSwitchToEpisode by rememberUpdatedState(::switchToEpisode)
+
     // Register MediaSession next/prev episode callbacks
     LaunchedEffect(currentMovie.id, currentEpIdx, episodes.size) {
         PlayerController.onNextEpisodeCallback = if (hasNextEpisode) {
-            { switchToEpisode(currentEpIdx + 1) }
+            { currentSwitchToEpisode(currentEpIdx + 1) }
         } else null
         PlayerController.onPreviousEpisodeCallback = if (hasPrevEpisode) {
-            { switchToEpisode(currentEpIdx - 1) }
+            { currentSwitchToEpisode(currentEpIdx - 1) }
         } else null
     }
 
     // Start playback when currentMovie changes
     LaunchedEffect(currentMovie.id, useWebViewEmbed) {
-        onRecordPlayInteraction(currentMovie)
+        try {
+            onRecordPlayInteraction(currentMovie)
+        } catch (_: Exception) {}
         if (!useWebViewEmbed) {
             val startMs = (currentMovie.resumeTime.coerceAtLeast(0)) * 1000L
             PlayerController.startPlayback(context, currentMovie, startMs)
@@ -336,27 +357,29 @@ fun PlayerScreen(
         }
     }
 
-    // Poll ExoPlayer position & update subtitles every 250ms, save progress every 4s
+    // Poll ExoPlayer position & update subtitles every 250ms, save progress every 10s
     LaunchedEffect(useWebViewEmbed, currentMovie.id, subtitlesEnabled, subtitleCues) {
         if (useWebViewEmbed) return@LaunchedEffect
         var tickCount = 0
         while (isActive) {
-            val player = PlayerController.getOrCreatePlayer(context)
-            val pos = player.currentPosition.coerceAtLeast(0L)
-            val dur = player.duration.coerceAtLeast(0L)
-            positionMs = pos
-            if (dur > 0L) durationMs = dur
+            try {
+                val player = PlayerController.getOrCreatePlayer(context)
+                val pos = player.currentPosition.coerceAtLeast(0L)
+                val dur = player.duration.coerceAtLeast(0L)
+                positionMs = pos
+                if (dur > 0L) durationMs = dur
 
-            if (subtitlesEnabled && subtitleCues.isNotEmpty()) {
-                activeSubtitleText = SubtitleParser.getActiveSubtitleText(subtitleCues, pos / 1000.0)
-            } else {
-                activeSubtitleText = ""
-            }
+                if (subtitlesEnabled && subtitleCues.isNotEmpty()) {
+                    activeSubtitleText = SubtitleParser.getActiveSubtitleText(subtitleCues, pos / 1000.0)
+                } else {
+                    activeSubtitleText = ""
+                }
 
-            tickCount++
-            if (tickCount % 16 == 0 && player.isPlaying) {
-                saveCurrentProgress()
-            }
+                tickCount++
+                if (tickCount % 40 == 0 && player.isPlaying) {
+                    saveCurrentProgress()
+                }
+            } catch (_: Exception) {}
             delay(250L)
         }
     }
@@ -1132,6 +1155,23 @@ private fun FallbackEmbedWebView(
     embedUrl: String,
     modifier: Modifier = Modifier
 ) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            webViewRef?.let { wv ->
+                try {
+                    wv.stopLoading()
+                    wv.loadUrl("about:blank")
+                    wv.onPause()
+                    wv.removeAllViews()
+                    wv.destroy()
+                } catch (_: Exception) {}
+            }
+            webViewRef = null
+        }
+    }
+
     AndroidView(
         factory = { ctx ->
             WebView(ctx).apply {
@@ -1148,10 +1188,14 @@ private fun FallbackEmbedWebView(
                 }
                 webChromeClient = WebChromeClient()
                 webViewClient = WebViewClient()
-                loadUrl(embedUrl)
+                if (embedUrl.isNotBlank()) {
+                    loadUrl(embedUrl)
+                }
+                webViewRef = this
             }
         },
         update = { webView ->
+            webViewRef = webView
             if (webView.url != embedUrl && embedUrl.isNotBlank()) {
                 webView.loadUrl(embedUrl)
             }

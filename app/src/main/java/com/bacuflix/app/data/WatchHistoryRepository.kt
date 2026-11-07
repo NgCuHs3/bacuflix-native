@@ -5,11 +5,17 @@ import com.bacuflix.app.model.EpisodeItem
 import com.bacuflix.app.model.EpisodeProgressEntry
 import com.bacuflix.app.model.EpisodeResumeInfo
 import com.bacuflix.app.model.Movie
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -25,10 +31,12 @@ class WatchHistoryRepository(context: Context) {
     }
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var persistJob: Job? = null
     private val _history = MutableStateFlow<List<Movie>>(emptyList())
     val history: StateFlow<List<Movie>> = _history.asStateFlow()
 
-    private val episodeProgressMap = mutableMapOf<String, MutableMap<String, EpisodeProgressEntry>>()
+    private val episodeProgressMap = ConcurrentHashMap<String, ConcurrentHashMap<String, EpisodeProgressEntry>>()
 
     init {
         loadFromPrefs()
@@ -133,7 +141,7 @@ class WatchHistoryRepository(context: Context) {
 
         val epIndex = movie.currentEpisodeIndex.takeIf { it >= 0 } ?: (prev?.currentEpisodeIndex ?: 0)
         val epKey = "ep_$epIndex"
-        val prevEpMap = episodeProgressMap[slug] ?: mutableMapOf()
+        val prevEpMap = episodeProgressMap[slug] ?: ConcurrentHashMap()
         val prevEpData = prevEpMap[epKey]
 
         val curTime = when {
@@ -245,7 +253,7 @@ class WatchHistoryRepository(context: Context) {
 
                 val epProgObj = obj.optJSONObject("episodeProgress")
                 if (epProgObj != null) {
-                    val map = mutableMapOf<String, EpisodeProgressEntry>()
+                    val map = ConcurrentHashMap<String, EpisodeProgressEntry>()
                     val keys = epProgObj.keys()
                     while (keys.hasNext()) {
                         val k = keys.next()
@@ -320,76 +328,80 @@ class WatchHistoryRepository(context: Context) {
     }
 
     private fun saveHistoryList(list: List<Movie>) {
-        _history.value = list
-        try {
-            val arr = JSONArray()
-            for (movie in list) {
-                val slug = movie.effectiveKey
-                val epProgObj = JSONObject()
-                episodeProgressMap[slug]?.forEach { (k, v) ->
-                    epProgObj.put(
-                        k,
-                        JSONObject().apply {
-                            put("episodeIndex", v.episodeIndex)
-                            put("episodeName", v.episodeName)
-                            put("currentTime", v.currentTime)
-                            put("duration", v.duration)
-                            put("progress", v.progress)
-                            put("updatedAt", v.updatedAt)
-                        }
-                    )
-                }
-
-                val epListArr = JSONArray()
-                movie.episodesList.forEach { ep ->
-                    epListArr.put(
-                        JSONObject().apply {
-                            put("index", ep.index)
-                            put("name", ep.name)
-                            put("slug", ep.slug)
-                            put("m3u8", ep.m3u8)
-                            put("fallbackEmbed", ep.fallbackEmbed)
-                        }
-                    )
-                }
-
-                arr.put(
-                    JSONObject().apply {
-                        put("id", slug)
-                        put("slug", slug)
-                        put("title", movie.title)
-                        put("seriesTitle", movie.seriesTitle)
-                        put("originTitle", movie.originTitle)
-                        put("episodeName", movie.episodeName)
-                        put("episodeCurrent", movie.episodeCurrent)
-                        put("currentEpisodeIndex", movie.currentEpisodeIndex)
-                        put("poster", movie.poster)
-                        put("thumb", movie.thumb)
-                        put("year", movie.year)
-                        put("quality", movie.quality)
-                        put("lang", movie.lang)
-                        put("type", movie.type)
-                        put("categories", JSONArray(movie.categories))
-                        put("countries", JSONArray(movie.countries))
-                        put("actors", JSONArray(movie.actors))
-                        put("m3u8", movie.m3u8)
-                        put("fallbackEmbed", movie.fallbackEmbed)
-                        put("serverName", movie.serverName)
-                        put("episodesList", epListArr)
-                        put("episodeProgress", epProgObj)
-                        put("currentTime", movie.currentTime)
-                        put("duration", movie.duration)
-                        put("progress", movie.progressPercent)
-                        put("progressPercent", movie.progressPercent)
-                        put("remainingText", movie.remainingText)
-                        put("playbackEnabled", true)
-                        put("source", movie.source)
-                        put("updatedAt", movie.updatedAt)
+        val snapshot = list.toList()
+        _history.value = snapshot
+        persistJob?.cancel()
+        persistJob = ioScope.launch {
+            try {
+                val arr = JSONArray()
+                for (movie in snapshot) {
+                    val slug = movie.effectiveKey
+                    val epProgObj = JSONObject()
+                    episodeProgressMap[slug]?.forEach { (k, v) ->
+                        epProgObj.put(
+                            k,
+                            JSONObject().apply {
+                                put("episodeIndex", v.episodeIndex)
+                                put("episodeName", v.episodeName)
+                                put("currentTime", v.currentTime)
+                                put("duration", v.duration)
+                                put("progress", v.progress)
+                                put("updatedAt", v.updatedAt)
+                            }
+                        )
                     }
-                )
-            }
-            prefs.edit().putString(HISTORY_STORAGE_KEY, arr.toString()).apply()
-        } catch (_: Exception) {}
+
+                    val epListArr = JSONArray()
+                    movie.episodesList.forEach { ep ->
+                        epListArr.put(
+                            JSONObject().apply {
+                                put("index", ep.index)
+                                put("name", ep.name)
+                                put("slug", ep.slug)
+                                put("m3u8", ep.m3u8)
+                                put("fallbackEmbed", ep.fallbackEmbed)
+                            }
+                        )
+                    }
+
+                    arr.put(
+                        JSONObject().apply {
+                            put("id", slug)
+                            put("slug", slug)
+                            put("title", movie.title)
+                            put("seriesTitle", movie.seriesTitle)
+                            put("originTitle", movie.originTitle)
+                            put("episodeName", movie.episodeName)
+                            put("episodeCurrent", movie.episodeCurrent)
+                            put("currentEpisodeIndex", movie.currentEpisodeIndex)
+                            put("poster", movie.poster)
+                            put("thumb", movie.thumb)
+                            put("year", movie.year)
+                            put("quality", movie.quality)
+                            put("lang", movie.lang)
+                            put("type", movie.type)
+                            put("categories", JSONArray(movie.categories))
+                            put("countries", JSONArray(movie.countries))
+                            put("actors", JSONArray(movie.actors))
+                            put("m3u8", movie.m3u8)
+                            put("fallbackEmbed", movie.fallbackEmbed)
+                            put("serverName", movie.serverName)
+                            put("episodesList", epListArr)
+                            put("episodeProgress", epProgObj)
+                            put("currentTime", movie.currentTime)
+                            put("duration", movie.duration)
+                            put("progress", movie.progressPercent)
+                            put("progressPercent", movie.progressPercent)
+                            put("remainingText", movie.remainingText)
+                            put("playbackEnabled", true)
+                            put("source", movie.source)
+                            put("updatedAt", movie.updatedAt)
+                        }
+                    )
+                }
+                prefs.edit().putString(HISTORY_STORAGE_KEY, arr.toString()).commit()
+            } catch (_: Exception) {}
+        }
     }
 
     private fun jsonArrayToList(arr: JSONArray?): List<String> {

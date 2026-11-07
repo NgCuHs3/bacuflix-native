@@ -4,6 +4,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import androidx.annotation.OptIn
 import androidx.media3.common.ForwardingPlayer
@@ -26,6 +28,7 @@ class PlaybackMediaSessionService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -46,12 +49,14 @@ class PlaybackMediaSessionService : MediaSessionService() {
 
         initLocks()
 
-        val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
-            .build()
-            .apply {
-                setSmallIcon(R.mipmap.ic_launcher)
-            }
-        setMediaNotificationProvider(notificationProvider)
+        try {
+            val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+                .build()
+                .apply {
+                    setSmallIcon(R.drawable.ic_notification_play)
+                }
+            setMediaNotificationProvider(notificationProvider)
+        } catch (_: Exception) {}
 
         val basePlayer = PlayerController.getOrCreatePlayer(this)
         basePlayer.addListener(playerListener)
@@ -80,19 +85,47 @@ class PlaybackMediaSessionService : MediaSessionService() {
             }
 
             override fun seekToNext() {
-                PlayerController.onNextEpisodeCallback?.invoke() ?: super.seekToNext()
+                val cb = PlayerController.onNextEpisodeCallback
+                if (cb != null) {
+                    mainHandler.post {
+                        try { cb.invoke() } catch (_: Exception) {}
+                    }
+                } else {
+                    super.seekToNext()
+                }
             }
 
             override fun seekToNextMediaItem() {
-                PlayerController.onNextEpisodeCallback?.invoke() ?: super.seekToNextMediaItem()
+                val cb = PlayerController.onNextEpisodeCallback
+                if (cb != null) {
+                    mainHandler.post {
+                        try { cb.invoke() } catch (_: Exception) {}
+                    }
+                } else {
+                    super.seekToNextMediaItem()
+                }
             }
 
             override fun seekToPrevious() {
-                PlayerController.onPreviousEpisodeCallback?.invoke() ?: super.seekToPrevious()
+                val cb = PlayerController.onPreviousEpisodeCallback
+                if (cb != null) {
+                    mainHandler.post {
+                        try { cb.invoke() } catch (_: Exception) {}
+                    }
+                } else {
+                    super.seekToPrevious()
+                }
             }
 
             override fun seekToPreviousMediaItem() {
-                PlayerController.onPreviousEpisodeCallback?.invoke() ?: super.seekToPreviousMediaItem()
+                val cb = PlayerController.onPreviousEpisodeCallback
+                if (cb != null) {
+                    mainHandler.post {
+                        try { cb.invoke() } catch (_: Exception) {}
+                    }
+                } else {
+                    super.seekToPreviousMediaItem()
+                }
             }
         }
 
@@ -139,7 +172,9 @@ class PlaybackMediaSessionService : MediaSessionService() {
             PlayerController.peekPlayer()?.removeListener(playerListener)
         } catch (_: Exception) {}
         mediaSession?.run {
-            release()
+            try {
+                release()
+            } catch (_: Exception) {}
         }
         mediaSession = null
         super.onDestroy()
