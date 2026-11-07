@@ -26,7 +26,7 @@ class BacuFlixApplication : Application() {
     }
 
     val googleTrendingService: GoogleTrendingService by lazy {
-        GoogleTrendingService(kkphimApi)
+        GoogleTrendingService(this, kkphimApi)
     }
 
     val mlRecommendationService: MlRecommendationService by lazy {

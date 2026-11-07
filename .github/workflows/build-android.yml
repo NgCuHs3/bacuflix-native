@@ -6,9 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build-apk:
     runs-on: ubuntu-24.04
@@ -23,16 +20,12 @@ jobs:
           java-version: "17"
           cache: "gradle"
 
-      - name: Cache Android Debug Keystore
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
-
       - name: Ensure Deterministic Debug Keystore
         run: |
-          mkdir -p ~/.android
-          if [ ! -f ~/.android/debug.keystore ]; then
+          mkdir -p ~/.android ~/.gradle/caches
+          if [ -f ~/.gradle/caches/bacuflix-debug.keystore ]; then
+            cp ~/.gradle/caches/bacuflix-debug.keystore ~/.android/debug.keystore
+          elif [ ! -f ~/.android/debug.keystore ]; then
             keytool -genkeypair -v \
               -keystore ~/.android/debug.keystore \
               -storepass android \
@@ -42,6 +35,7 @@ jobs:
               -keysize 2048 \
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
+            cp ~/.android/debug.keystore ~/.gradle/caches/bacuflix-debug.keystore
           fi
 
       - name: Run Unit Tests & Build Android Debug APK
@@ -51,7 +45,7 @@ jobs:
           ./gradlew testDebugUnitTest assembleDebug --stacktrace 2>&1 | tee gradle-build.log
           EXIT_CODE=${PIPESTATUS[0]}
           if [ $EXIT_CODE -ne 0 ]; then
-            grep -E "^e: |FAILURE:|Caused by:|> " gradle-build.log | head -n 30 | while IFS= read -r line; do
+            grep -E "^e: |FAILURE:|What went wrong:|FAILED" gradle-build.log | head -n 9 | while IFS= read -r line; do
               echo "::error::$line"
             done
             exit $EXIT_CODE
