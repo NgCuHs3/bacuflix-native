@@ -1,6 +1,11 @@
 package com.bacuflix.app.ui.home
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -28,6 +34,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
@@ -44,7 +52,6 @@ import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -57,20 +64,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -511,63 +523,81 @@ private fun HomeTopHeader(
     onNotificationClick: () -> Unit,
     onProfileClick: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
+    var isSearchFocused by remember { mutableStateOf(false) }
+    val isSearchActive = isSearchFocused || searchQuery.isNotEmpty()
+
+    val searchWidth by animateDpAsState(
+        targetValue = when {
+            isWideScreen -> if (isSearchActive) 310.dp else 210.dp
+            else -> if (isSearchActive) 260.dp else 148.dp
+        },
+        animationSpec = tween(durationMillis = 220),
+        label = "searchWidth"
+    )
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xF508090D))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFA08090D),
+                        Color(0xE008090D)
+                    )
+                )
+            )
             .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Left: Menu + Brand + Nav Tabs
+        // Left: Menu (Wide/TV) + Clean BACUFlix Wordmark + Nav Tabs (Wide/TV)
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (isWideScreen) {
-                IconButton(
-                    onClick = onToggleSidebar,
-                    modifier = Modifier.size(36.dp)
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onToggleSidebar),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Menu,
                         contentDescription = "Đóng mở thanh bên",
-                        tint = Color.White
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
 
-            // BACUFlix Brand Wordmark
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable { onSelectTab(HomeTab.NEW) }
-            ) {
-                AsyncImagePoster(
-                    url = "icon.png",
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(if (isWideScreen) 28.dp else 26.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) {
-                            append("BACU")
-                        }
-                        withStyle(SpanStyle(color = FlixColors.Red, fontWeight = FontWeight.Black)) {
-                            append("Flix")
-                        }
-                    },
-                    fontSize = if (isWideScreen) 20.sp else 18.sp,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
+            // Professional BACUFlix Wordmark Only (no icon box)
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) {
+                        append("BACU")
+                    }
+                    withStyle(SpanStyle(color = FlixColors.Red, fontWeight = FontWeight.Black)) {
+                        append("Flix")
+                    }
+                },
+                fontSize = if (isWideScreen) 24.sp else 21.sp,
+                letterSpacing = (-0.5).sp,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier
+                    .clickable {
+                        focusManager.clearFocus()
+                        onSelectTab(HomeTab.NEW)
+                    }
+                    .padding(vertical = 2.dp)
+            )
 
             if (isWideScreen) {
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 val tabs = listOf(
                     HomeTab.NEW,
                     HomeTab.MOVIES,
@@ -582,7 +612,10 @@ private fun HomeTopHeader(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (selected) FlixColors.Red else Color.Transparent)
-                                .clickable { onSelectTab(tab) }
+                                .clickable {
+                                    focusManager.clearFocus()
+                                    onSelectTab(tab)
+                                }
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Text(
@@ -599,39 +632,51 @@ private fun HomeTopHeader(
             }
         }
 
-        if (isWideScreen) {
-            Spacer(modifier = Modifier.weight(1f))
-        }
+        Spacer(modifier = Modifier.width(10.dp))
 
-        // Right: Search Input + TV Keyboard Toggle (TV/Wide) + Notification + Profile
+        // Right: Smart Auto-Expanding Search Bar + Compact Action Icons
         Row(
-            modifier = if (isWideScreen) Modifier else Modifier.weight(1f),
+            modifier = if (!isWideScreen && isSearchActive) Modifier.weight(1f) else Modifier,
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            val searchModifier = if (!isWideScreen && isSearchActive) {
+                Modifier.weight(1f)
+            } else {
+                Modifier.width(searchWidth)
+            }
+
             Row(
-                modifier = (if (isWideScreen) Modifier.width(230.dp) else Modifier.weight(1f))
-                    .height(36.dp)
+                modifier = searchModifier
+                    .height(34.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(FlixColors.BgElevated)
-                    .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 10.dp),
+                    .background(if (isSearchActive) Color(0xFF232734) else Color(0xCC181A22))
+                    .border(
+                        width = 1.dp,
+                        color = if (isSearchActive) FlixColors.RedBright.copy(alpha = 0.65f) else FlixColors.Border,
+                        shape = RoundedCornerShape(999.dp)
+                    )
+                    .padding(horizontal = 11.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = null,
-                    tint = FlixColors.TextSecondary,
-                    modifier = Modifier.size(16.dp)
+                    tint = if (isSearchActive) FlixColors.RedBright else FlixColors.TextSecondary,
+                    modifier = Modifier.size(15.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Box(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
                     if (searchQuery.isEmpty()) {
                         Text(
-                            text = "Tìm phim, diễn viên...",
+                            text = if (isSearchActive || isWideScreen) "Tìm phim, diễn viên..." else "Tìm kiếm...",
                             color = FlixColors.TextMuted,
                             fontSize = 12.sp,
-                            maxLines = 1
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     BasicTextField(
@@ -640,77 +685,121 @@ private fun HomeTopHeader(
                         singleLine = true,
                         textStyle = TextStyle(
                             color = Color.White,
-                            fontSize = 12.5.sp
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(
+                            onSearch = { focusManager.clearFocus() }
                         ),
                         cursorBrush = SolidColor(FlixColors.RedBright),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { isSearchFocused = it.isFocused }
                     )
                 }
-                if (searchQuery.isNotEmpty()) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Xóa tìm kiếm",
-                        tint = FlixColors.TextSecondary,
+                if (isSearchActive) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Box(
                         modifier = Modifier
-                            .size(16.dp)
-                            .clickable { onSearchQueryChange("") }
-                    )
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x33FFFFFF))
+                            .clickable {
+                                onSearchQueryChange("")
+                                focusManager.clearFocus()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Xóa tìm kiếm",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
             }
 
             if (isWideScreen) {
-                IconButton(
-                    onClick = onOpenTvKeyboard,
+                Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(FlixColors.BgElevated)
+                        .border(1.dp, FlixColors.Border, CircleShape)
+                        .clickable(onClick = onOpenTvKeyboard),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Keyboard,
                         contentDescription = "Bàn phím TV",
                         tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
 
-            IconButton(
-                onClick = onNotificationClick,
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(FlixColors.BgElevated)
+            // Notification Bell (auto-hides on mobile while search bar is expanded)
+            AnimatedVisibility(
+                visible = isWideScreen || !isSearchActive,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150))
             ) {
-                Box {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background( Color(0xCC181A22))
+                        .border(1.dp, FlixColors.Border, CircleShape)
+                        .clickable(onClick = onNotificationClick),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = Icons.Default.Notifications,
                         contentDescription = "Thông báo phim mới",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
+                        tint = Color(0xFFE4E4E7),
+                        modifier = Modifier.size(16.dp)
                     )
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .size(7.dp)
+                            .padding(top = 6.dp, end = 6.dp)
+                            .size(6.dp)
                             .clip(CircleShape)
                             .background(FlixColors.RedBright)
                     )
                 }
             }
 
-            IconButton(
-                onClick = onProfileClick,
+            // Sleek 32dp Account / Favorites Avatar Button (matches .header-profile-btn in css/home.css)
+            val isFavTab = activeTab == HomeTab.FAVORITES
+            Box(
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(32.dp)
                     .clip(CircleShape)
-                    .background(FlixColors.Red)
+                    .background(
+                        Brush.linearGradient(
+                            colors = if (isFavTab) {
+                                listOf(FlixColors.Red, Color(0xFF990615))
+                            } else {
+                                listOf(Color(0xFF272935), Color(0xFF14151B))
+                            }
+                        )
+                    )
+                    .border(
+                        width = 1.2.dp,
+                        color = if (isFavTab) FlixColors.RedBright else Color(0x38FFFFFF),
+                        shape = CircleShape
+                    )
+                    .clickable(onClick = onProfileClick),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Person,
                     contentDescription = "Danh sách của tôi",
                     tint = Color.White,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
