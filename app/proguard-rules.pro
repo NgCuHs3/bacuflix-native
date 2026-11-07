@@ -1,0 +1,2 @@
+-keep class com.bacuflix.app.model.** { *; }
+-dontwarn androidx.media3.**

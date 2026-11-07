@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="flix_bg_primary">#08090D</color>
+    <color name="flix_bg_secondary">#14151B</color>
+    <color name="flix_red">#E50920</color>
+    <color name="flix_red_bright">#FF1F35</color>
+    <color name="flix_text_primary">#FFFFFF</color>
+    <color name="flix_text_secondary">#A1A1AA</color>
+    <color name="ic_launcher_background">#08090D</color>
+</resources>
