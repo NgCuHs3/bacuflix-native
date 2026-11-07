@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bacuflix.app.BacuFlixApplication
+import com.bacuflix.app.data.FavoritesRepository
+import com.bacuflix.app.data.SmartSearchEngine
 import com.bacuflix.app.model.EpisodeResumeInfo
 import com.bacuflix.app.model.GenreCategory
 import com.bacuflix.app.model.HomeTab
@@ -33,6 +35,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val previousTab: HomeTab = HomeTab.NEW,
         val activeGenre: GenreCategory? = null,
         val searchQuery: String = "",
+        val searchSuggestions: List<String> = SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS,
         val isTvKeyboardOpen: Boolean = false,
         val isSidebarCollapsed: Boolean = false,
         val isLoadingTab: Boolean = true,
@@ -208,8 +211,22 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     HomeTab.HISTORY -> watchHistoryRepo.getAll()
                     HomeTab.SEARCH -> {
                         val q = _uiState.value.searchQuery.trim()
-                        if (q.isNotEmpty()) kkphimApi.searchMovies(q, limit = 24, page = 1).movies
-                        else emptyList()
+                        if (q.isNotEmpty()) {
+                            val res = SmartSearchEngine.search(
+                                keyword = q,
+                                page = 1,
+                                kkphimApi = kkphimApi,
+                                localPool = buildLocalSearchPool()
+                            )
+                            if (res.suggestions.isNotEmpty()) {
+                                _uiState.value = _uiState.value.copy(
+                                    searchSuggestions = (res.suggestions + SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS)
+                                        .distinctBy { it.lowercase() }
+                                        .take(10)
+                                )
+                            }
+                            res.movies
+                        } else emptyList()
                     }
                 }
 
@@ -228,6 +245,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun buildLocalSearchPool(): List<Movie> {
+        val catalogMovies = try {
+            catalogRepo.load(forceRefresh = false).movies
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val state = _uiState.value
+        return (
+            watchHistoryRepo.getAll() +
+                favoritesRepo.getAll() +
+                state.trendingCarousel +
+                state.newReleasesCarousel +
+                state.recommendedCarousel +
+                state.featuredSeriesCarousel +
+                catalogMovies
+            ).distinctBy { it.effectiveKey }
+    }
+
     fun openGenreTab(genre: GenreCategory) {
         _uiState.value = _uiState.value.copy(activeGenre = genre)
         switchTab(HomeTab.GENRE)
@@ -238,13 +273,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         searchDebounceJob?.cancel()
         val trimmed = newQuery.trim()
         if (trimmed.isEmpty()) {
+            _uiState.value = _uiState.value.copy(
+                searchSuggestions = SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS
+            )
             if (_uiState.value.activeTab == HomeTab.SEARCH) {
                 switchTab(_uiState.value.previousTab, keepKeyboardOpen = _uiState.value.isTvKeyboardOpen)
             }
             return
         }
         searchDebounceJob = viewModelScope.launch {
-            delay(350L)
+            delay(280L)
             executeSearch(trimmed)
         }
     }
@@ -273,9 +311,20 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         loadTabJob?.cancel()
         loadTabJob = viewModelScope.launch {
             try {
-                val res = kkphimApi.searchMovies(kw, limit = 24, page = 1)
+                val res = SmartSearchEngine.search(
+                    keyword = kw,
+                    page = 1,
+                    kkphimApi = kkphimApi,
+                    localPool = buildLocalSearchPool()
+                )
+                val mergedSuggestions = (res.suggestions + SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS)
+                    .filter { !it.equals(kw, ignoreCase = true) }
+                    .distinctBy { it.lowercase() }
+                    .take(10)
+
                 _uiState.value = _uiState.value.copy(
                     gridMovies = res.movies,
+                    searchSuggestions = mergedSuggestions.ifEmpty { SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS },
                     isLoadingTab = false,
                     errorMessage = null
                 )
@@ -316,7 +365,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         val slug = state.activeGenre?.slug ?: "hanh-dong"
                         kkphimApi.getMoviesByGenre(slug, nextPage, 24).movies
                     }
-                    HomeTab.SEARCH -> kkphimApi.searchMovies(state.searchQuery, 24, nextPage).movies
+                    HomeTab.SEARCH -> {
+                        val cleanKw = SmartSearchEngine.cleanSearchQuery(state.searchQuery)
+                            .ifBlank { state.searchQuery }
+                        kkphimApi.searchMovies(cleanKw, 24, nextPage).movies
+                    }
                     else -> emptyList()
                 }
 
@@ -358,12 +411,13 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openMovieOrPlay(movie: Movie) {
-        if (movie.slug.isNotBlank()) {
-            openMovieDetail(movie)
-        } else if (movie.playbackEnabled && movie.m3u8.isNotBlank()) {
-            startPlayer(movie)
+        val cleanSlug = FavoritesRepository.sanitizeApiSlug(movie.slug)
+        if (cleanSlug.isNotBlank()) {
+            openMovieDetail(movie.copy(slug = cleanSlug))
+        } else if (movie.playbackEnabled && (movie.m3u8.isNotBlank() || movie.fallbackEmbed.isNotBlank() || movie.episodesList.isNotEmpty())) {
+            resumeHistoryItem(movie)
         } else {
-            showToast("Phim này hiện chưa có luồng phát hợp lệ.")
+            openMovieDetail(movie)
         }
     }
 
@@ -374,23 +428,33 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             isDetailLoading = true,
             detailError = null
         )
-        loadDetailForModal(movie.slug)
+        loadDetailForModal(movie)
     }
 
     fun retryLoadDetail() {
         val movie = _uiState.value.detailModalMovie ?: return
-        loadDetailForModal(movie.slug)
+        loadDetailForModal(movie)
     }
 
-    private fun loadDetailForModal(slug: String) {
+    private fun loadDetailForModal(movie: Movie) {
         detailJob?.cancel()
         detailJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isDetailLoading = true, detailError = null)
             try {
-                val detail = kkphimApi.getMovieDetail(slug)
+                val cachedHistory = watchHistoryRepo.getItem(movie.effectiveKey)
+                val detail = SmartSearchEngine.resolveMovieDetailWithFallback(
+                    movie = movie,
+                    cachedHistoryItem = cachedHistory,
+                    kkphimApi = kkphimApi,
+                    onSlugResolved = { oldKey, resolvedDetail ->
+                        val eps = resolvedDetail.servers.firstOrNull()?.episodes.orEmpty()
+                        watchHistoryRepo.updateResolvedMovie(oldKey, resolvedDetail.movie, eps)
+                    }
+                )
                 watchHistoryRepo.enrichMetadata(detail.movie)
                 mlRecommendationService.recordMovieInteraction(detail.movie, "view")
                 _uiState.value = _uiState.value.copy(
+                    detailModalMovie = detail.movie,
                     detailResponse = detail,
                     isDetailLoading = false,
                     detailError = null
@@ -416,21 +480,43 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resumeHistoryItem(item: Movie) {
-        val epIndex = item.currentEpisodeIndex.coerceAtLeast(0)
-        val savedTime = if (item.currentTime > 5) item.currentTime else 0
+        val historyEntry = watchHistoryRepo.getItem(item.effectiveKey) ?: item
+        val epIndex = historyEntry.currentEpisodeIndex.coerceAtLeast(0)
+        val resumeInfo = watchHistoryRepo.getEpisodeResumeInfo(historyEntry.effectiveKey, epIndex)
+        val savedTime = when {
+            resumeInfo != null && resumeInfo.currentTime > 5 -> resumeInfo.currentTime
+            historyEntry.currentTime > 5 -> historyEntry.currentTime
+            item.currentTime > 5 -> item.currentTime
+            else -> 0
+        }
 
-        if (item.m3u8.isNotBlank() && item.episodesList.isNotEmpty()) {
-            val epName = item.episodeName.ifBlank {
-                item.episodesList.getOrNull(epIndex)?.name ?: "Tập ${epIndex + 1}"
-            }
-            val seriesTitle = item.seriesTitle.ifBlank { item.title }
+        val cleanSlug = FavoritesRepository.sanitizeApiSlug(historyEntry.slug)
+        val baseKey = FavoritesRepository.normalizeMovieKey(cleanSlug, historyEntry.id.ifBlank { historyEntry.effectiveKey })
+
+        // Fast path: cached episodes list or direct stream already available in history
+        val cachedEpisodes = historyEntry.episodesList.ifEmpty { item.episodesList }
+        val targetEpisode = cachedEpisodes.getOrNull(epIndex) ?: cachedEpisodes.firstOrNull()
+        val directM3u8 = targetEpisode?.m3u8?.ifBlank { historyEntry.m3u8 } ?: historyEntry.m3u8.ifBlank { item.m3u8 }
+        val directEmbed = targetEpisode?.fallbackEmbed?.ifBlank { historyEntry.fallbackEmbed } ?: historyEntry.fallbackEmbed.ifBlank { item.fallbackEmbed }
+
+        if (directM3u8.isNotBlank() || directEmbed.isNotBlank()) {
+            val safeEpIndex = if (cachedEpisodes.isNotEmpty()) epIndex.coerceIn(0, cachedEpisodes.lastIndex) else 0
+            val epName = targetEpisode?.name
+                ?.takeIf { it.isNotBlank() }
+                ?: historyEntry.episodeName.ifBlank { "Tập ${safeEpIndex + 1}" }
+            val seriesTitle = historyEntry.seriesTitle.ifBlank { historyEntry.title.substringBefore(" - ") }
+
             startPlayer(
-                item.copy(
-                    id = "${item.effectiveKey}-$epIndex",
+                historyEntry.copy(
+                    id = baseKey,
+                    slug = cleanSlug,
                     seriesTitle = seriesTitle,
                     episodeName = epName,
                     title = "$seriesTitle - $epName",
-                    currentEpisodeIndex = epIndex,
+                    m3u8 = directM3u8.ifBlank { directEmbed },
+                    fallbackEmbed = directEmbed,
+                    episodesList = cachedEpisodes,
+                    currentEpisodeIndex = safeEpIndex,
                     resumeTime = savedTime,
                     playbackEnabled = true
                 )
@@ -438,38 +524,38 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val slug = item.effectiveKey
-        if (slug.isNotBlank()) {
-            viewModelScope.launch {
-                try {
-                    val detail = kkphimApi.getMovieDetail(slug)
-                    val firstServer = detail.servers.firstOrNull()
-                    val episodes = firstServer?.episodes.orEmpty()
-                    if (episodes.isNotEmpty()) {
-                        val safeIdx = epIndex.coerceIn(0, episodes.lastIndex)
-                        val playback = buildPlaybackMovie(
-                            movie = detail.movie,
-                            serverName = firstServer?.serverName ?: "Vietsub",
-                            episodes = episodes,
-                            epIndex = safeIdx,
-                            resumeSeconds = savedTime
-                        )
-                        if (playback != null) {
-                            startPlayer(playback)
-                            return@launch
-                        }
+        // Fallback: resolve detail from KKPhim API (by slug or title search) and start playback
+        viewModelScope.launch {
+            try {
+                val detail = SmartSearchEngine.resolveMovieDetailWithFallback(
+                    movie = historyEntry,
+                    cachedHistoryItem = historyEntry,
+                    kkphimApi = kkphimApi,
+                    onSlugResolved = { oldKey, resolvedDetail ->
+                        val eps = resolvedDetail.servers.firstOrNull()?.episodes.orEmpty()
+                        watchHistoryRepo.updateResolvedMovie(oldKey, resolvedDetail.movie, eps)
                     }
-                    openMovieDetail(item)
-                } catch (_: Exception) {
-                    if (item.m3u8.isNotBlank()) {
-                        startPlayer(item.copy(resumeTime = savedTime, playbackEnabled = true))
-                    } else {
-                        openMovieDetail(item)
+                )
+                val firstServer = detail.servers.firstOrNull()
+                val episodes = firstServer?.episodes.orEmpty()
+                if (episodes.isNotEmpty()) {
+                    val safeIdx = epIndex.coerceIn(0, episodes.lastIndex)
+                    val playback = buildPlaybackMovie(
+                        movie = detail.movie,
+                        serverName = firstServer?.serverName ?: "Vietsub",
+                        episodes = episodes,
+                        epIndex = safeIdx,
+                        resumeSeconds = savedTime
+                    )
+                    if (playback != null) {
+                        startPlayer(playback)
+                        return@launch
                     }
                 }
+                openMovieDetail(detail.movie)
+            } catch (_: Exception) {
+                openMovieDetail(historyEntry)
             }
-        } else if (item.m3u8.isNotBlank()) {
-            startPlayer(item.copy(resumeTime = savedTime, playbackEnabled = true))
         }
     }
 

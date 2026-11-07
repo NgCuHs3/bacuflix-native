@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,6 +32,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -406,6 +408,63 @@ fun HomeScreen(
                                     }
                                 }
 
+                                if (state.activeTab == HomeTab.SEARCH && state.searchSuggestions.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Gợi ý nhanh:",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = FlixColors.TextMuted,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                        state.searchSuggestions.forEach { suggestion ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(999.dp))
+                                                    .background(Color(0xFF1C202B))
+                                                    .border(
+                                                        width = 1.dp,
+                                                        color = Color(0x33FFFFFF),
+                                                        shape = RoundedCornerShape(999.dp)
+                                                    )
+                                                    .clickable {
+                                                        viewModel.executeSearch(suggestion)
+                                                    }
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Search,
+                                                        contentDescription = null,
+                                                        tint = FlixColors.RedBright,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Text(
+                                                        text = suggestion,
+                                                        color = Color(0xFFE4E4E7),
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (state.gridMovies.isEmpty()) {
                                     Spacer(modifier = Modifier.height(18.dp))
                                     Text(
@@ -425,7 +484,13 @@ fun HomeScreen(
                             CatalogMovieCard(
                                 movie = movie,
                                 isFavorite = favoriteKeys.contains(movie.effectiveKey),
-                                onClick = { viewModel.openMovieOrPlay(movie) },
+                                onClick = {
+                                    if (state.activeTab == HomeTab.HISTORY) {
+                                        viewModel.resumeHistoryItem(movie)
+                                    } else {
+                                        viewModel.openMovieOrPlay(movie)
+                                    }
+                                },
                                 onToggleFavorite = { viewModel.toggleFavorite(movie) }
                             )
                         }

@@ -130,7 +130,7 @@ fun PlayerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
 
-    var currentMovie by remember(initialMovie.id) { mutableStateOf(initialMovie) }
+    var currentMovie by remember(initialMovie.id, initialMovie.currentEpisodeIndex) { mutableStateOf(initialMovie) }
     val playbackState by PlayerController.uiState.collectAsState()
 
     val isEmbedOnly = remember(currentMovie.m3u8, currentMovie.fallbackEmbed) {
@@ -138,7 +138,7 @@ fun PlayerScreen(
         (!m3u8.contains(".m3u8", ignoreCase = true) || m3u8.isEmpty()) &&
             currentMovie.fallbackEmbed.isNotBlank()
     }
-    var forceFallbackEmbed by remember(currentMovie.id) { mutableStateOf(false) }
+    var forceFallbackEmbed by remember(currentMovie.id, currentMovie.currentEpisodeIndex) { mutableStateOf(false) }
     val useWebViewEmbed = isEmbedOnly || forceFallbackEmbed
 
     var controlsVisible by remember { mutableStateOf(true) }
@@ -167,13 +167,13 @@ fun PlayerScreen(
 
     // Auto-next episode countdown state
     var autoNextRemainingSec by remember { mutableIntStateOf(0) }
-    var autoNextCancelled by remember(currentMovie.id) { mutableStateOf(false) }
+    var autoNextCancelled by remember(currentMovie.id, currentMovie.currentEpisodeIndex) { mutableStateOf(false) }
 
     val episodes = currentMovie.episodesList
     val currentEpIdx = currentMovie.currentEpisodeIndex
     val hasPrevEpisode = episodes.isNotEmpty() && currentEpIdx > 0
     val hasNextEpisode = episodes.isNotEmpty() && currentEpIdx < episodes.lastIndex
-    var lastSavedSec by remember(currentMovie.id) { mutableIntStateOf(-1) }
+    var lastSavedSec by remember(currentMovie.id, currentMovie.currentEpisodeIndex) { mutableIntStateOf(-1) }
 
     fun saveCurrentProgress(force: Boolean = false) {
         if (useWebViewEmbed) return
@@ -197,13 +197,16 @@ fun PlayerScreen(
             currentMovie.title.substringBefore(" - ")
         }
         val epName = ep.name.ifBlank { "Tập ${targetIndex + 1}" }
-        val savedResume = onGetEpisodeResume(currentMovie.effectiveKey, targetIndex)?.currentTime ?: 0
+        val cleanSlug = com.bacuflix.app.data.FavoritesRepository.sanitizeApiSlug(currentMovie.slug)
+        val baseKey = com.bacuflix.app.data.FavoritesRepository.normalizeMovieKey(cleanSlug, currentMovie.id.ifBlank { currentMovie.effectiveKey })
+        val savedResume = onGetEpisodeResume(baseKey, targetIndex)?.currentTime ?: 0
 
         forceFallbackEmbed = false
         autoNextRemainingSec = 0
         autoNextCancelled = false
         currentMovie = currentMovie.copy(
-            id = "${currentMovie.effectiveKey}-$targetIndex",
+            id = baseKey,
+            slug = cleanSlug,
             title = "$seriesTitle - $epName",
             seriesTitle = seriesTitle,
             episodeName = epName,
@@ -358,8 +361,8 @@ fun PlayerScreen(
         } else null
     }
 
-    // Start playback when currentMovie changes
-    LaunchedEffect(currentMovie.id, useWebViewEmbed) {
+    // Start playback when currentMovie or episode changes
+    LaunchedEffect(currentMovie.id, currentMovie.currentEpisodeIndex, currentMovie.m3u8, useWebViewEmbed) {
         try {
             onRecordPlayInteraction(currentMovie)
         } catch (_: Exception) {}
@@ -383,7 +386,7 @@ fun PlayerScreen(
     }
 
     // Poll ExoPlayer position & update subtitles every 250ms, save progress every 10s
-    LaunchedEffect(useWebViewEmbed, currentMovie.id, subtitlesEnabled, subtitleCues) {
+    LaunchedEffect(useWebViewEmbed, currentMovie.id, currentMovie.currentEpisodeIndex, subtitlesEnabled, subtitleCues) {
         if (useWebViewEmbed) return@LaunchedEffect
         var tickCount = 0
         while (isActive) {

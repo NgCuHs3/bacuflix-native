@@ -532,9 +532,12 @@ fun buildPlaybackMovie(
     val streamUrl = epObj.m3u8.ifBlank { epObj.fallbackEmbed }
     if (streamUrl.isBlank()) return null
 
+    val cleanSlug = com.bacuflix.app.data.FavoritesRepository.sanitizeApiSlug(movie.slug)
+    val baseKey = com.bacuflix.app.data.FavoritesRepository.normalizeMovieKey(cleanSlug, movie.id.ifBlank { movie.effectiveKey })
+
     return movie.copy(
-        id = "${movie.effectiveKey}-${epObj.slug.ifBlank { epIndex.toString() }}",
-        slug = movie.effectiveKey,
+        id = baseKey,
+        slug = cleanSlug,
         seriesTitle = movie.title,
         episodeName = epObj.name,
         title = "${movie.title} - ${epObj.name}",

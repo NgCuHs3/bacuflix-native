@@ -46,7 +46,41 @@ class WatchHistoryRepository(context: Context) {
 
     fun getItem(slugOrId: String?): Movie? {
         if (slugOrId.isNullOrBlank()) return null
-        return _history.value.firstOrNull { it.slug == slugOrId || it.id == slugOrId }
+        val normKey = FavoritesRepository.normalizeMovieKey(slugOrId, slugOrId)
+        return _history.value.firstOrNull {
+            it.slug == slugOrId || it.id == slugOrId ||
+                it.effectiveKey == slugOrId || it.effectiveKey == normKey
+        }
+    }
+
+    @Synchronized
+    fun updateResolvedMovie(oldKey: String, resolvedMovie: Movie, episodes: List<EpisodeItem> = emptyList()) {
+        if (oldKey.isBlank()) return
+        val list = _history.value.toMutableList()
+        val idx = list.indexOfFirst {
+            it.effectiveKey == oldKey || it.slug == oldKey || it.id == oldKey
+        }
+        if (idx < 0) return
+        val existing = list[idx]
+        val newSlug = FavoritesRepository.sanitizeApiSlug(resolvedMovie.slug)
+        val newKey = newSlug.ifBlank { existing.id }
+        if (newKey != existing.effectiveKey) {
+            episodeProgressMap[existing.effectiveKey]?.let { prevMap ->
+                episodeProgressMap[newKey] = prevMap
+            }
+        }
+        list[idx] = existing.copy(
+            id = newKey,
+            slug = newSlug,
+            poster = resolvedMovie.poster.ifBlank { existing.poster },
+            thumb = resolvedMovie.thumb.ifBlank { existing.thumb },
+            originTitle = resolvedMovie.originTitle.ifBlank { existing.originTitle },
+            categories = resolvedMovie.categories.ifEmpty { existing.categories },
+            countries = resolvedMovie.countries.ifEmpty { existing.countries },
+            actors = resolvedMovie.actors.ifEmpty { existing.actors }.take(10),
+            episodesList = episodes.ifEmpty { existing.episodesList }.take(120)
+        )
+        saveHistoryList(list)
     }
 
     fun getEpisodeResumeInfo(slugOrId: String?, episodeIndex: Int? = null): EpisodeResumeInfo? {
@@ -133,15 +167,18 @@ class WatchHistoryRepository(context: Context) {
 
     @Synchronized
     fun saveWatchProgress(movie: Movie, currentTimeSec: Int, durationSec: Int): Boolean {
-        val slug = movie.effectiveKey
-        if (slug.isBlank()) return false
+        val realSlug = FavoritesRepository.sanitizeApiSlug(movie.slug)
+        val key = FavoritesRepository.normalizeMovieKey(realSlug, movie.id.ifBlank { movie.effectiveKey })
+        if (key.isBlank()) return false
         val list = _history.value.toMutableList()
-        val existingIdx = list.indexOfFirst { it.slug == slug || it.id == slug }
+        val existingIdx = list.indexOfFirst {
+            it.effectiveKey == key || (realSlug.isNotEmpty() && it.slug == realSlug) || it.id == key
+        }
         val prev = if (existingIdx >= 0) list[existingIdx] else null
 
         val epIndex = movie.currentEpisodeIndex.takeIf { it >= 0 } ?: (prev?.currentEpisodeIndex ?: 0)
         val epKey = "ep_$epIndex"
-        val prevEpMap = episodeProgressMap[slug] ?: ConcurrentHashMap()
+        val prevEpMap = episodeProgressMap[key] ?: ConcurrentHashMap()
         val prevEpData = prevEpMap[epKey]
 
         val curTime = when {
@@ -181,11 +218,11 @@ class WatchHistoryRepository(context: Context) {
             progress = progress,
             updatedAt = System.currentTimeMillis()
         )
-        episodeProgressMap[slug] = prevEpMap
+        episodeProgressMap[key] = prevEpMap
 
         val entry = Movie(
-            id = slug,
-            slug = slug,
+            id = key,
+            slug = realSlug.ifBlank { prev?.slug?.let { FavoritesRepository.sanitizeApiSlug(it) }.orEmpty() },
             title = seriesTitle,
             seriesTitle = seriesTitle,
             originTitle = movie.originTitle.ifBlank { prev?.originTitle.orEmpty() },
@@ -248,8 +285,11 @@ class WatchHistoryRepository(context: Context) {
             val list = mutableListOf<Movie>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
-                val slug = obj.optString("slug").ifBlank { obj.optString("id") }
-                if (slug.isBlank()) continue
+                val rawSlug = obj.optString("slug")
+                val rawId = obj.optString("id").ifBlank { rawSlug }
+                val realSlug = FavoritesRepository.sanitizeApiSlug(rawSlug)
+                val key = FavoritesRepository.normalizeMovieKey(realSlug, rawId)
+                if (key.isBlank()) continue
 
                 val epProgObj = obj.optJSONObject("episodeProgress")
                 if (epProgObj != null) {
@@ -267,7 +307,7 @@ class WatchHistoryRepository(context: Context) {
                             updatedAt = epObj.optLong("updatedAt", 0L)
                         )
                     }
-                    episodeProgressMap[slug] = map
+                    episodeProgressMap[key] = map
                 }
 
                 val episodesList = mutableListOf<EpisodeItem>()
@@ -290,8 +330,8 @@ class WatchHistoryRepository(context: Context) {
                 val seriesTitle = obj.optString("seriesTitle").ifBlank { obj.optString("title", "Phim") }
                 list.add(
                     Movie(
-                        id = slug,
-                        slug = slug,
+                        id = key,
+                        slug = realSlug,
                         title = seriesTitle,
                         seriesTitle = seriesTitle,
                         originTitle = obj.optString("originTitle"),
@@ -335,9 +375,10 @@ class WatchHistoryRepository(context: Context) {
             try {
                 val arr = JSONArray()
                 for (movie in snapshot) {
-                    val slug = movie.effectiveKey
+                    val key = movie.effectiveKey
+                    val realSlug = FavoritesRepository.sanitizeApiSlug(movie.slug)
                     val epProgObj = JSONObject()
-                    episodeProgressMap[slug]?.forEach { (k, v) ->
+                    episodeProgressMap[key]?.forEach { (k, v) ->
                         epProgObj.put(
                             k,
                             JSONObject().apply {
@@ -366,8 +407,8 @@ class WatchHistoryRepository(context: Context) {
 
                     arr.put(
                         JSONObject().apply {
-                            put("id", slug)
-                            put("slug", slug)
+                            put("id", key)
+                            put("slug", realSlug)
                             put("title", movie.title)
                             put("seriesTitle", movie.seriesTitle)
                             put("originTitle", movie.originTitle)

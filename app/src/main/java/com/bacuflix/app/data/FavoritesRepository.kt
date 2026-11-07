@@ -16,6 +16,22 @@ class FavoritesRepository(context: Context) {
         private const val PREFS_NAME = "bacuflix_favorites_prefs"
         private const val STORAGE_KEY = "kkphim_favorites"
         private const val MAX_FAVORITES = 200
+
+        fun sanitizeApiSlug(rawSlug: String?): String {
+            val s = rawSlug?.trim().orEmpty()
+            if (s.isEmpty() || s.startsWith("movie-")) return ""
+            return s
+        }
+
+        fun normalizeMovieKey(rawSlug: String?, rawId: String?): String {
+            val cleanSlug = sanitizeApiSlug(rawSlug)
+            if (cleanSlug.isNotEmpty()) return cleanSlug
+            val id = rawId?.trim().orEmpty()
+            if (id.startsWith("movie-")) {
+                return id.replace(Regex("^((?:movie-[a-zA-Z0-9]+))-\\d+$"), "$1")
+            }
+            return id
+        }
     }
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -38,13 +54,14 @@ class FavoritesRepository(context: Context) {
 
     @Synchronized
     fun addFavorite(movie: Movie): Boolean {
-        val key = movie.effectiveKey
+        val realSlug = sanitizeApiSlug(movie.slug)
+        val key = normalizeMovieKey(realSlug, movie.id.ifBlank { movie.effectiveKey })
         if (key.isBlank()) return false
         val current = _favorites.value.toMutableList()
-        current.removeAll { it.effectiveKey == key }
+        current.removeAll { it.effectiveKey == key || it.id == key }
         val entry = movie.copy(
-            slug = key,
-            id = movie.id.ifBlank { key },
+            slug = realSlug,
+            id = key,
             playbackEnabled = true,
             addedAt = System.currentTimeMillis()
         )
@@ -57,17 +74,18 @@ class FavoritesRepository(context: Context) {
     @Synchronized
     fun removeFavorite(slugOrId: String?): Boolean {
         if (slugOrId.isNullOrBlank()) return false
-        val filtered = _favorites.value.filter { it.effectiveKey != slugOrId }
+        val filtered = _favorites.value.filter { it.effectiveKey != slugOrId && it.id != slugOrId }
         saveFavorites(filtered)
         return true
     }
 
     @Synchronized
     fun toggleFavorite(movie: Movie): Boolean {
-        val key = movie.effectiveKey
+        val key = normalizeMovieKey(movie.slug, movie.id.ifBlank { movie.effectiveKey })
         if (key.isBlank()) return false
-        return if (isFavorite(key)) {
+        return if (isFavorite(key) || isFavorite(movie.effectiveKey)) {
             removeFavorite(key)
+            removeFavorite(movie.effectiveKey)
             false
         } else {
             addFavorite(movie)
@@ -88,14 +106,17 @@ class FavoritesRepository(context: Context) {
             val keys = mutableSetOf<String>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
-                val slug = obj.optString("slug").ifBlank { obj.optString("id") }
-                if (slug.isBlank()) continue
+                val rawSlug = obj.optString("slug")
+                val rawId = obj.optString("id").ifBlank { rawSlug }
+                val realSlug = sanitizeApiSlug(rawSlug)
+                val key = normalizeMovieKey(realSlug, rawId)
+                if (key.isBlank()) continue
                 val title = obj.optString("title").ifBlank { obj.optString("name") }.ifBlank { "Phim" }
                 val poster = obj.optString("poster").ifBlank { obj.optString("poster_url") }.ifBlank { CatalogSources.FALLBACK_POSTER }
                 val thumb = obj.optString("thumb").ifBlank { obj.optString("thumb_url") }.ifBlank { poster }
                 val movie = Movie(
-                    id = slug,
-                    slug = slug,
+                    id = key,
+                    slug = realSlug,
                     title = title,
                     seriesTitle = title,
                     originTitle = obj.optString("originTitle"),
@@ -111,7 +132,7 @@ class FavoritesRepository(context: Context) {
                     addedAt = obj.optLong("addedAt", System.currentTimeMillis())
                 )
                 list.add(movie)
-                keys.add(slug)
+                keys.add(movie.effectiveKey)
             }
             _favorites.value = list
             _favoriteKeys.value = keys
@@ -129,8 +150,8 @@ class FavoritesRepository(context: Context) {
             for (movie in list) {
                 arr.put(
                     JSONObject().apply {
-                        put("slug", movie.effectiveKey)
-                        put("id", movie.id)
+                        put("slug", sanitizeApiSlug(movie.slug))
+                        put("id", movie.effectiveKey)
                         put("name", movie.title)
                         put("title", movie.title)
                         put("originTitle", movie.originTitle)
