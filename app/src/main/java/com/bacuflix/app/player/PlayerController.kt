@@ -87,9 +87,9 @@ object PlayerController {
                 // clear the video surface and automatically recover at the current position.
                 val isCodecOrSurfaceError =
                     error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_DECODING_SURFACE_UNSUPPORTED ||
                         error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-                        error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED
+                        error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ||
+                        error.errorCode in 4001..4006
 
                 if (isCodecOrSurfaceError && consecutiveErrorCount < 4) {
                     consecutiveErrorCount++
