@@ -209,10 +209,9 @@ fun HeroCarousel(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Action Buttons + Carousel Controls
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -235,7 +234,9 @@ fun HeroCarousel(
                         Text(
                             text = "Xem ngay",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
 
@@ -254,9 +255,11 @@ fun HeroCarousel(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (isFav) "Đã trong danh sách" else "Danh sách",
+                            text = if (isFav) "Đã lưu" else "Danh sách",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
 
@@ -288,7 +291,7 @@ fun HeroCarousel(
                                 currentIndex = (currentIndex - 1 + heroMovies.size) % heroMovies.size
                             },
                             modifier = Modifier
-                                .size(30.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .background(Color(0x8014151B))
                         ) {
@@ -296,7 +299,7 @@ fun HeroCarousel(
                                 imageVector = Icons.Default.ChevronLeft,
                                 contentDescription = "Trước",
                                 tint = Color.White,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
 
@@ -319,7 +322,7 @@ fun HeroCarousel(
                                 currentIndex = (currentIndex + 1) % heroMovies.size
                             },
                             modifier = Modifier
-                                .size(30.dp)
+                                .size(28.dp)
                                 .clip(CircleShape)
                                 .background(Color(0x8014151B))
                         ) {
@@ -327,7 +330,7 @@ fun HeroCarousel(
                                 imageVector = Icons.Default.ChevronRight,
                                 contentDescription = "Tiếp",
                                 tint = Color.White,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }

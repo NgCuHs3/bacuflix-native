@@ -1,9 +1,9 @@
 package com.bacuflix.app.player
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -12,10 +12,14 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.bacuflix.app.model.Movie
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,7 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Shared singleton controller managing the native AndroidX Media3 [ExoPlayer] instance,
  * custom [PngStrippingDataSource.Factory] for PNG-wrapped HLS streams, and
- * [PlaybackMediaSessionService] foreground notification integration.
+ * [PlaybackMediaSessionService] foreground notification & background playback integration.
  */
 @OptIn(UnstableApi::class)
 object PlayerController {
@@ -37,7 +41,9 @@ object PlayerController {
     )
 
     private var exoPlayer: ExoPlayer? = null
+    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private val dataSourceFactory = PngStrippingDataSource.Factory()
+    private var isInBackground: Boolean = false
 
     private val _uiState = MutableStateFlow(PlaybackUiState())
     val uiState: StateFlow<PlaybackUiState> = _uiState.asStateFlow()
@@ -63,6 +69,25 @@ object PlayerController {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            val player = exoPlayer
+            // If a surface/decoder error occurs while transitioning to/from background,
+            // clear the video surface and automatically recover at the current position.
+            if (
+                player != null &&
+                (error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_SURFACE_UNSUPPORTED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
+            ) {
+                try {
+                    val resumePos = player.currentPosition.coerceAtLeast(0L)
+                    player.clearVideoSurface()
+                    player.seekTo(resumePos)
+                    player.prepare()
+                    player.playWhenReady = true
+                    return
+                } catch (_: Exception) {}
+            }
+
             val detail = error.localizedMessage ?: "Lỗi giải mã luồng phát (${error.errorCodeName})"
             _uiState.value = _uiState.value.copy(
                 isBuffering = false,
@@ -71,6 +96,8 @@ object PlayerController {
             )
         }
     }
+
+    fun peekPlayer(): ExoPlayer? = exoPlayer
 
     @Synchronized
     fun getOrCreatePlayer(context: Context): ExoPlayer {
@@ -82,19 +109,43 @@ object PlayerController {
             .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
             .build()
 
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 20_000,
+                /* maxBufferMs = */ 60_000,
+                /* bufferForPlaybackMs = */ 2_000,
+                /* bufferForPlaybackAfterRebufferMs = */ 4_000
+            )
+            .setBackBuffer(15_000, true)
+            .build()
+
         val player = ExoPlayer.Builder(appContext)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         player.addListener(playerListener)
         exoPlayer = player
+        ensureMediaControllerConnected(appContext)
         return player
     }
 
+    fun setBackgroundMode(inBackground: Boolean) {
+        isInBackground = inBackground
+        val player = exoPlayer ?: return
+        if (inBackground) {
+            try {
+                player.clearVideoSurface()
+            } catch (_: Exception) {}
+        }
+    }
+
     fun startPlayback(context: Context, movie: Movie, startPositionMs: Long = 0L) {
-        val player = getOrCreatePlayer(context)
+        val appContext = context.applicationContext
+        val player = getOrCreatePlayer(appContext)
         val streamUrl = movie.m3u8.trim()
 
         _uiState.value = PlaybackUiState(
@@ -142,13 +193,21 @@ object PlayerController {
 
         player.prepare()
         player.playWhenReady = true
-        ensureMediaSessionServiceStarted(context)
+        ensureMediaControllerConnected(appContext)
     }
 
     fun stopAndRelease(context: Context) {
+        val appContext = context.applicationContext
+        mediaControllerFuture?.let { future ->
+            try {
+                MediaController.releaseFuture(future)
+            } catch (_: Exception) {}
+        }
+        mediaControllerFuture = null
+
         try {
-            val serviceIntent = Intent(context.applicationContext, PlaybackMediaSessionService::class.java)
-            context.applicationContext.stopService(serviceIntent)
+            val serviceIntent = Intent(appContext, PlaybackMediaSessionService::class.java)
+            appContext.stopService(serviceIntent)
         } catch (_: Exception) {}
 
         exoPlayer?.let { player ->
@@ -160,18 +219,21 @@ object PlayerController {
             } catch (_: Exception) {}
         }
         exoPlayer = null
+        isInBackground = false
         _uiState.value = PlaybackUiState()
     }
 
-    private fun ensureMediaSessionServiceStarted(context: Context) {
+    private fun ensureMediaControllerConnected(appContext: Context) {
+        val existing = mediaControllerFuture
+        if (existing != null && !existing.isCancelled) {
+            return
+        }
         try {
-            val appContext = context.applicationContext
-            val intent = Intent(appContext, PlaybackMediaSessionService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                appContext.startForegroundService(intent)
-            } else {
-                appContext.startService(intent)
-            }
+            val sessionToken = SessionToken(
+                appContext,
+                ComponentName(appContext, PlaybackMediaSessionService::class.java)
+            )
+            mediaControllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
         } catch (_: Exception) {}
     }
 }

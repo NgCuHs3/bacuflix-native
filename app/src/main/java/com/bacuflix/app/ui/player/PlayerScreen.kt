@@ -30,8 +30,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -46,6 +48,7 @@ import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -71,7 +74,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +82,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +95,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -121,6 +126,8 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var playerViewRef by remember { mutableStateOf<PlayerView?>(null) }
 
     var currentMovie by remember(initialMovie.id) { mutableStateOf(initialMovie) }
     val playbackState by PlayerController.uiState.collectAsState()
@@ -250,11 +257,41 @@ fun PlayerScreen(
         onBackToDetail()
     }
 
-    // Keep screen awake during playback & cleanup on exit
+    // Keep screen awake during foreground playback, handle seamless background audio transition, & cleanup on exit
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    saveCurrentProgress()
+                    if (activity?.isChangingConfigurations != true) {
+                        // Detach PlayerView surface before SurfaceView destruction so ExoPlayer
+                        // continues playing audio in the background without surface errors.
+                        playerViewRef?.player = null
+                        PlayerController.setBackgroundMode(true)
+                    }
+                }
+                Lifecycle.Event.ON_START -> {
+                    PlayerController.setBackgroundMode(false)
+                    val targetPlayer = PlayerController.getOrCreatePlayer(context)
+                    if (playerViewRef?.player !== targetPlayer) {
+                        playerViewRef?.player = targetPlayer
+                    }
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         onDispose {
             saveCurrentProgress()
+            playerViewRef?.player = null
+            playerViewRef = null
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             activity?.let { act ->
                 act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -385,14 +422,17 @@ fun PlayerScreen(
                     PlayerView(ctx).apply {
                         useController = false
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        keepScreenOn = true
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                         player = PlayerController.getOrCreatePlayer(ctx)
+                        playerViewRef = this
                     }
                 },
                 update = { view ->
+                    playerViewRef = view
                     val targetPlayer = PlayerController.getOrCreatePlayer(context)
                     if (view.player !== targetPlayer) {
                         view.player = targetPlayer
@@ -525,7 +565,8 @@ fun PlayerScreen(
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 80.dp, end = 24.dp)
+                .statusBarsPadding()
+                .padding(top = 72.dp, end = 24.dp)
         ) {
             val pct = (playerVolume * 100f).roundToInt()
             Row(
@@ -710,10 +751,11 @@ fun PlayerScreen(
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color(0xD9000000), Color.Transparent)
+                                colors = listOf(Color(0xE6000000), Color.Transparent)
                             )
                         )
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -810,9 +852,10 @@ fun PlayerScreen(
                             .align(Alignment.BottomCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color(0xE6000000))
+                                    colors = listOf(Color.Transparent, Color(0xF0000000))
                                 )
                             )
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         // Timeline Seek Bar + Time Labels
@@ -990,6 +1033,14 @@ fun PlayerScreen(
                                         subtitlesEnabled = !subtitlesEnabled
                                         onShowToast(if (subtitlesEnabled) "Đã bật phụ đề" else "Đã tắt phụ đề")
                                         lastInteractionTick++
+                                    }
+                                )
+                                PlayerActionButton(
+                                    icon = Icons.Default.Headphones,
+                                    label = "Phát nền",
+                                    onClick = {
+                                        onShowToast("Đang phát trong nền — điều khiển từ thanh thông báo / màn hình khóa")
+                                        activity?.moveTaskToBack(true)
                                     }
                                 )
                                 PlayerActionButton(

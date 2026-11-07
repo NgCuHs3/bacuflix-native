@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -505,15 +507,16 @@ private fun HomeTopHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xE608090D))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .background(Color(0xF508090D))
+            .statusBarsPadding()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         // Left: Menu + Brand + Nav Tabs
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (isWideScreen) {
                 IconButton(
@@ -537,10 +540,10 @@ private fun HomeTopHeader(
                     url = "icon.png",
                     contentDescription = null,
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(if (isWideScreen) 28.dp else 26.dp)
                         .clip(RoundedCornerShape(6.dp))
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = buildAnnotatedString {
                         withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) {
@@ -550,12 +553,14 @@ private fun HomeTopHeader(
                             append("Flix")
                         }
                     },
-                    fontSize = 20.sp
+                    fontSize = if (isWideScreen) 20.sp else 18.sp,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
             if (isWideScreen) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 val tabs = listOf(
                     HomeTab.NEW,
                     HomeTab.MOVIES,
@@ -577,7 +582,9 @@ private fun HomeTopHeader(
                                 text = tab.label,
                                 color = if (selected) Color.White else FlixColors.TextSecondary,
                                 fontSize = 13.sp,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -585,14 +592,18 @@ private fun HomeTopHeader(
             }
         }
 
-        // Right: Search Input + TV Keyboard Toggle + Notification + Profile
+        if (isWideScreen) {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+
+        // Right: Search Input + TV Keyboard Toggle (TV/Wide) + Notification + Profile
         Row(
+            modifier = if (isWideScreen) Modifier else Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
-                modifier = Modifier
-                    .width(if (isWideScreen) 230.dp else 165.dp)
+                modifier = (if (isWideScreen) Modifier.width(230.dp) else Modifier.weight(1f))
                     .height(36.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(FlixColors.BgElevated)
@@ -612,7 +623,7 @@ private fun HomeTopHeader(
                         Text(
                             text = "Tìm phim, diễn viên...",
                             color = FlixColors.TextMuted,
-                            fontSize = 12.5.sp,
+                            fontSize = 12.sp,
                             maxLines = 1
                         )
                     }
@@ -640,19 +651,21 @@ private fun HomeTopHeader(
                 }
             }
 
-            IconButton(
-                onClick = onOpenTvKeyboard,
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(FlixColors.BgElevated)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Keyboard,
-                    contentDescription = "Bàn phím TV",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp)
-                )
+            if (isWideScreen) {
+                IconButton(
+                    onClick = onOpenTvKeyboard,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(FlixColors.BgElevated)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Keyboard,
+                        contentDescription = "Bàn phím TV",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
 
             IconButton(
