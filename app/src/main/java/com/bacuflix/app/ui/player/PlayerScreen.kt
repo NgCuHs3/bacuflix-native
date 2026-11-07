@@ -423,7 +423,7 @@ fun PlayerScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = leftSeekCumulativeSec > 0,
                         enter = fadeIn(),
                         exit = fadeOut()
@@ -481,7 +481,7 @@ fun PlayerScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = rightSeekCumulativeSec > 0,
                         enter = fadeIn(),
                         exit = fadeOut()
