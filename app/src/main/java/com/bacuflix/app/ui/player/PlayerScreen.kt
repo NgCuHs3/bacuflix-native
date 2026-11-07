@@ -238,6 +238,32 @@ fun PlayerScreen(
         } catch (_: Exception) {}
     }
 
+    fun hidePlayerSystemBars() {
+        val act = activity ?: return
+        try {
+            val window = act.window
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode =
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+        } catch (_: Exception) {}
+    }
+
+    fun restoreSystemBars() {
+        val act = activity ?: return
+        try {
+            val window = act.window
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+        } catch (_: Exception) {}
+    }
+
     fun toggleFullscreenOrientation() {
         val act = activity ?: return
         isFullscreenLandscape = !isFullscreenLandscape
@@ -247,16 +273,13 @@ fun PlayerScreen(
             } else {
                 ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
-            val window = act.window
-            val controller = WindowCompat.getInsetsController(window, window.decorView)
-            if (isFullscreenLandscape) {
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-                controller.systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            } else {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            }
+            hidePlayerSystemBars()
         } catch (_: Exception) {}
+    }
+
+    // Ensure status bar remains hidden throughout movie playback
+    LaunchedEffect(currentMovie.id, isFullscreenLandscape, controlsVisible) {
+        hidePlayerSystemBars()
     }
 
     BackHandler {
@@ -264,6 +287,7 @@ fun PlayerScreen(
         if (isFullscreenLandscape) {
             toggleFullscreenOrientation()
         }
+        restoreSystemBars()
         PlayerController.stopAndRelease(context)
         onBackToDetail()
     }
@@ -281,7 +305,8 @@ fun PlayerScreen(
                         PlayerController.setBackgroundMode(true)
                     }
                 }
-                Lifecycle.Event.ON_START -> {
+                Lifecycle.Event.ON_START, Lifecycle.Event.ON_RESUME -> {
+                    hidePlayerSystemBars()
                     PlayerController.setBackgroundMode(false)
                     try {
                         val targetPlayer = PlayerController.getOrCreatePlayer(context)
@@ -302,6 +327,7 @@ fun PlayerScreen(
     DisposableEffect(Unit) {
         try {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            hidePlayerSystemBars()
         } catch (_: Exception) {}
         onDispose {
             saveCurrentProgress(force = true)
@@ -311,9 +337,8 @@ fun PlayerScreen(
                 activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 activity?.let { act ->
                     act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    val controller = WindowCompat.getInsetsController(act.window, act.window.decorView)
-                    controller.show(WindowInsetsCompat.Type.systemBars())
                 }
+                restoreSystemBars()
             } catch (_: Exception) {}
             PlayerController.onNextEpisodeCallback = null
             PlayerController.onPreviousEpisodeCallback = null

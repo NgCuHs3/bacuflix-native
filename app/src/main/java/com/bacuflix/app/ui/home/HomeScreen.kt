@@ -376,13 +376,20 @@ fun HomeScreen(
                                     Text(
                                         text = sectionHeading,
                                         style = MaterialTheme.typography.headlineMedium,
-                                        color = Color.White
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(end = 8.dp)
                                     )
                                     if (state.gridMovies.isNotEmpty()) {
                                         Text(
                                             text = statusMessage,
                                             style = MaterialTheme.typography.bodyMedium,
-                                            color = FlixColors.TextSecondary
+                                            color = FlixColors.TextSecondary,
+                                            maxLines = 1,
+                                            softWrap = false
                                         )
                                     }
                                 }
