@@ -101,12 +101,11 @@ import com.bacuflix.app.model.SubtitleCue
 import com.bacuflix.app.player.PlayerController
 import com.bacuflix.app.player.SeekController
 import com.bacuflix.app.player.SubtitleParser
-import com.bacuflix.app.ui.theme.BacuFlixColors
+import com.bacuflix.app.ui.theme.FlixColors
 import com.bacuflix.app.util.FormatTime
 import com.bacuflix.app.util.UrlUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @OptIn(UnstableApi::class)
@@ -122,7 +121,6 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
-    val coroutineScope = rememberCoroutineScope()
 
     var currentMovie by remember(initialMovie.id) { mutableStateOf(initialMovie) }
     val playbackState by PlayerController.uiState.collectAsState()
@@ -181,8 +179,8 @@ fun PlayerScreen(
         if (targetIndex !in episodes.indices) return
         saveCurrentProgress()
         val ep = episodes[targetIndex]
-        val m3u8 = ep.linkM3u8.trim()
-        val embed = ep.linkEmbed.trim()
+        val m3u8 = ep.m3u8.trim()
+        val embed = ep.fallbackEmbed.trim()
         val seriesTitle = currentMovie.seriesTitle.ifBlank {
             currentMovie.title.substringBefore(" - ")
         }
@@ -290,7 +288,7 @@ fun PlayerScreen(
             }
         }
         // Load external subtitle if provided
-        if (currentMovie.subtitle.isNotBlank()) {
+        if (!currentMovie.subtitle.isNullOrBlank()) {
             try {
                 subtitleCues = SubtitleParser.loadSubtitleFromUrl(currentMovie.subtitle)
             } catch (_: Exception) {
@@ -533,7 +531,7 @@ fun PlayerScreen(
             Row(
                 modifier = Modifier
                     .background(Color(0xD9121318), RoundedCornerShape(999.dp))
-                    .border(1.dp, BacuFlixColors.BorderSubtle, RoundedCornerShape(999.dp))
+                    .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -555,7 +553,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(playerVolume.coerceIn(0f, 1f))
-                            .background(BacuFlixColors.AccentRed)
+                            .background(FlixColors.Red)
                     )
                 }
                 Text(
@@ -580,7 +578,7 @@ fun PlayerScreen(
                         modifier = Modifier
                             .widthIn(max = 420.dp)
                             .background(Color(0xEB121318), RoundedCornerShape(14.dp))
-                            .border(1.dp, BacuFlixColors.BorderSubtle, RoundedCornerShape(14.dp))
+                            .border(1.dp, FlixColors.Border, RoundedCornerShape(14.dp))
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -597,7 +595,7 @@ fun PlayerScreen(
                                     val resumeMs = positionMs.coerceAtLeast(0L)
                                     PlayerController.startPlayback(context, currentMovie, resumeMs)
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = BacuFlixColors.AccentRed)
+                                colors = ButtonDefaults.buttonColors(containerColor = FlixColors.Red)
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -618,7 +616,7 @@ fun PlayerScreen(
                 } else {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
-                            color = BacuFlixColors.AccentRed,
+                            color = FlixColors.Red,
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
@@ -653,7 +651,7 @@ fun PlayerScreen(
             ) {
                 Text(
                     text = "TẬP TIẾP THEO",
-                    color = BacuFlixColors.AccentRed,
+                    color = FlixColors.Red,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 1.sp
@@ -670,14 +668,14 @@ fun PlayerScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Tự động phát sau ${autoNextRemainingSec}s",
-                    color = BacuFlixColors.TextSecondary,
+                    color = FlixColors.TextSecondary,
                     fontSize = 12.sp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = { switchToEpisode(currentEpIdx + 1) },
-                        colors = ButtonDefaults.buttonColors(containerColor = BacuFlixColors.AccentRed),
+                        colors = ButtonDefaults.buttonColors(containerColor = FlixColors.Red),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -724,7 +722,7 @@ fun PlayerScreen(
                         color = Color(0x9914161D),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
-                            .border(1.dp, BacuFlixColors.BorderSubtle, RoundedCornerShape(8.dp))
+                            .border(1.dp, FlixColors.Border, RoundedCornerShape(8.dp))
                             .clickable {
                                 saveCurrentProgress()
                                 if (isFullscreenLandscape) toggleFullscreenOrientation()
@@ -755,7 +753,7 @@ fun PlayerScreen(
                     // BACUFlix Brand Button (returns straight to Home)
                     Text(
                         text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = BacuFlixColors.AccentRed, fontWeight = FontWeight.Black)) {
+                            withStyle(SpanStyle(color = FlixColors.Red, fontWeight = FontWeight.Black)) {
                                 append("BACU")
                             }
                             withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
@@ -784,11 +782,11 @@ fun PlayerScreen(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(BacuFlixColors.AccentRed)
+                                .background(FlixColors.Red)
                         )
                         Text(
                             text = "NOW PLAYING",
-                            color = BacuFlixColors.TextSecondary,
+                            color = FlixColors.TextSecondary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 0.8.sp
@@ -858,15 +856,15 @@ fun PlayerScreen(
                                     lastInteractionTick++
                                 },
                                 colors = SliderDefaults.colors(
-                                    thumbColor = BacuFlixColors.AccentRed,
-                                    activeTrackColor = BacuFlixColors.AccentRed,
+                                    thumbColor = FlixColors.Red,
+                                    activeTrackColor = FlixColors.Red,
                                     inactiveTrackColor = Color(0x4DFFFFFF)
                                 ),
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
                                 text = FormatTime.formatTime(durSec),
-                                color = BacuFlixColors.TextSecondary,
+                                color = FlixColors.TextSecondary,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -918,7 +916,7 @@ fun PlayerScreen(
                                         lastInteractionTick++
                                     },
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = BacuFlixColors.AccentRed,
+                                        containerColor = FlixColors.Red,
                                         contentColor = Color.White
                                     ),
                                     shape = RoundedCornerShape(8.dp)
@@ -1024,7 +1022,7 @@ private fun PlayerActionButton(
         modifier = Modifier
             .border(
                 width = 1.dp,
-                color = if (isActive) BacuFlixColors.AccentRed else BacuFlixColors.BorderSubtle,
+                color = if (isActive) FlixColors.Red else FlixColors.Border,
                 shape = RoundedCornerShape(8.dp)
             )
             .clickable(onClick = onClick)
@@ -1118,7 +1116,7 @@ private fun shareEpisodeLink(
 ) {
     val slug = movie.effectiveKey
     val epNumber = (movie.currentEpisodeIndex + 1).coerceAtLeast(1)
-    val shareUrl = UrlUtils.buildShareUrl(slug, epNumber)
+    val shareUrl = UrlUtils.buildEpisodeUrl(slug, epNumber)
     val shareText = "Xem phim \"${movie.title}\" trên BACUFlix: $shareUrl"
     try {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {

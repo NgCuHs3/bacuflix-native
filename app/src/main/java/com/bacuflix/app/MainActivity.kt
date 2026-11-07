@@ -20,8 +20,8 @@ import androidx.core.content.ContextCompat
 import com.bacuflix.app.ui.home.HomeScreen
 import com.bacuflix.app.ui.home.HomeViewModel
 import com.bacuflix.app.ui.player.PlayerScreen
-import com.bacuflix.app.ui.theme.BacuFlixColors
-import com.bacuflix.app.ui.theme.BacuFlixTheme
+import com.bacuflix.app.ui.theme.BACUFlixTheme
+import com.bacuflix.app.ui.theme.FlixColors
 import com.bacuflix.app.util.UrlUtils
 
 class MainActivity : ComponentActivity() {
@@ -42,13 +42,13 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
 
         setContent {
-            BacuFlixTheme {
+            BACUFlixTheme {
                 val uiState by homeViewModel.uiState.collectAsState()
                 val activePlayerMovie = uiState.activePlayerMovie
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = BacuFlixColors.BgPrimary
+                    color = FlixColors.BgPrimary
                 ) {
                     if (activePlayerMovie != null) {
                         PlayerScreen(

@@ -132,4 +132,20 @@ class SeekController(
         isDirectScrub = false
         direction = 0
     }
+
+    companion object {
+        fun computeRelativeSeekTarget(
+            currentSeconds: Double,
+            durationSeconds: Double,
+            deltaSeconds: Double
+        ): Double {
+            val safeCurrent = if (currentSeconds.isFinite() && currentSeconds >= 0.0) currentSeconds else 0.0
+            val target = max(0.0, safeCurrent + deltaSeconds)
+            return if (durationSeconds.isFinite() && durationSeconds > 0.0) {
+                min(durationSeconds, target)
+            } else {
+                target
+            }
+        }
+    }
 }
