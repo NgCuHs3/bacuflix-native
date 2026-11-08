@@ -176,9 +176,18 @@ object SmartSearchEngine {
             }
         }
 
+        // Check year match if user query contains year digits
+        val queryYear = Regex("""\b(19\d\d|20\d\d)\b""").find(rawQuery)?.value
+        if (queryYear != null && movie.year == queryYear) {
+            score += 350.0
+        }
+
         // 5. Base trust for direct API search results + recency boost
         if (fromDirectApiSearch && score < 120.0) {
             score += 95.0
+        }
+        if (movie.source.contains("4K", ignoreCase = true)) {
+            score += 15.0
         }
         if (score > 0.0) {
             when (movie.year) {
@@ -236,7 +245,7 @@ object SmartSearchEngine {
         }
 
         coroutineScope {
-            // 1. Primary API Search
+            // 1. Primary API Search (queries KKPhim + VSMov + NguonC concurrently with instant cache)
             val primaryDeferred = async {
                 try {
                     kkphimApi.searchMovies(coreKw, limit = 24, page = 1).movies
@@ -245,23 +254,7 @@ object SmartSearchEngine {
                 }
             }
 
-            // 2. Variant API Search (if rawKw differs from coreKw or has Vietnamese accents)
-            val secondaryVariant = when {
-                !rawKw.equals(coreKw, ignoreCase = true) -> rawKw
-                !unaccentedKw.equals(coreKw, ignoreCase = true) && unaccentedKw.length >= 3 -> unaccentedKw
-                else -> null
-            }
-            val variantDeferred = async {
-                if (secondaryVariant != null) {
-                    try {
-                        kkphimApi.searchMovies(secondaryVariant, limit = 16, page = 1).movies
-                    } catch (_: Exception) {
-                        emptyList()
-                    }
-                } else emptyList()
-            }
-
-            // 3. Live Google Suggest Autocomplete & Expansion
+            // 2. Google Suggest Autocomplete & Expansion for suggestion chips
             val googleSuggestionsDeferred = async {
                 try {
                     val rawSugs = GoogleTrendingService.fetchGoogleSuggestions("phim $coreKw")
@@ -273,7 +266,7 @@ object SmartSearchEngine {
                 }
             }
 
-            // 4. Genre Intent Search (if user searched for a genre/theme like "cổ trang", "kinh dị", "hoạt hình")
+            // 3. Genre Intent Search (if user searched for a genre/theme like "cổ trang", "kinh dị", "hoạt hình")
             val detectedGenre = detectGenreSlug(rawKw)
             val genreDeferred = async {
                 if (detectedGenre != null) {
@@ -286,13 +279,29 @@ object SmartSearchEngine {
             }
 
             val primaryMovies = primaryDeferred.await()
-            val variantMovies = variantDeferred.await()
             val googleSuggestions = googleSuggestionsDeferred.await()
             val genreMovies = genreDeferred.await()
 
-            // 5. If primary + variant results are sparse (< 8) or user typed unaccented query,
-            // expand using top 2 Google Suggest movie titles!
-            val expandedMovies = if ((primaryMovies.size < 8 || coreKw == unaccentedKw) && googleSuggestions.isNotEmpty()) {
+            // 4. Secondary fallback: only query variants if primary search returned sparse results (< 4)
+            val variantMovies = if (primaryMovies.size < 4) {
+                val secondaryVariant = when {
+                    !rawKw.equals(coreKw, ignoreCase = true) -> rawKw
+                    !unaccentedKw.equals(coreKw, ignoreCase = true) && unaccentedKw.length >= 3 -> unaccentedKw
+                    else -> null
+                }
+                if (secondaryVariant != null) {
+                    try {
+                        kkphimApi.searchMovies(secondaryVariant, limit = 16, page = 1).movies
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                } else emptyList()
+            } else {
+                emptyList()
+            }
+
+            // 5. Expand using Google Suggestions only if results are still very sparse (< 3)
+            val expandedMovies = if (primaryMovies.size + variantMovies.size < 3 && googleSuggestions.isNotEmpty()) {
                 googleSuggestions.take(2).map { sug ->
                     async {
                         try {

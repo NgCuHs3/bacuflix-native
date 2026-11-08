@@ -13,12 +13,15 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Multi-Source Vietnamese Movie API client combining:
  * 1. KKPhim (https://phimapi.com)
- * 2. VSMov / Phim4K (https://vsmov.com/api) — replaces blocked ophim1.com with 4K/FHD HLS streams
+ * 2. VSMov / Phim4K (https://vsmov.com/api) — with 4K HLS streams from https://vsmov.com/api-document
  * 3. NguonC (https://phim.nguonc.com) — with StreamC HLS bootstrap resolver
+ *
+ * Enhanced with High-Speed In-Memory Caching (LRU/TTL) for Instant Search and Modal Rendering.
  */
 class KkphimApiService {
     companion object {
@@ -26,14 +29,20 @@ class KkphimApiService {
         const val DEFAULT_CDN = "https://phimimg.com"
         const val VSMOV_BASE_URL = "https://vsmov.com/api"
         const val VSMOV_CDN = "https://vsmov.com"
+        const val VSMOV_STORAGE_CDN = "https://vsmov.com/storage/images/"
         const val NGUONC_BASE_URL = "https://phim.nguonc.com"
-        private const val REQUEST_TIMEOUT_MS = 12000
-        private const val BACKUP_SOURCE_TIMEOUT_MS = 6000
+        private const val REQUEST_TIMEOUT_MS = 4500
+        private const val BACKUP_SOURCE_TIMEOUT_MS = 2200
+        private const val SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
+        private const val DETAIL_CACHE_TTL_MS = 15 * 60 * 1000L // 15 minutes
         private const val BROWSER_UA =
             "Mozilla/5.0 (Linux; Android 14; BACUFlix/3.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
         private val VSMOV_EMBED_REGEX =
             Regex("""^(https?://[^/]*streamvsmov\.com)/video/([0-9a-fA-F-]+).*$""", RegexOption.IGNORE_CASE)
+
+        private val searchCache = ConcurrentHashMap<String, Pair<Long, MovieListResponse>>()
+        private val detailCache = ConcurrentHashMap<String, Pair<Long, MovieDetailResponse>>()
 
         /**
          * Converts a VSMov embed link (`https://v15.streamvsmov.com/video/{uuid}`) or
@@ -65,7 +74,7 @@ class KkphimApiService {
          * Resolves a NguonC StreamC embed URL (`https://embed18.streamc.xyz/embed.php?hash=...`)
          * into a direct HLS playlist URL via its JSON bootstrap endpoint.
          */
-        fun resolveStreamcBootstrapSync(embedUrl: String, timeoutMs: Int = 6000): String? {
+        fun resolveStreamcBootstrapSync(embedUrl: String, timeoutMs: Int = 3000): String? {
             val clean = embedUrl.trim()
             if (!clean.contains("streamc.xyz", ignoreCase = true) || !clean.contains("hash=")) {
                 return null
@@ -123,9 +132,10 @@ class KkphimApiService {
             return "$domain/$path"
         }
 
-        fun normalizeMovie(item: JSONObject?, cdnDomain: String? = DEFAULT_CDN): Movie? {
+        fun normalizeMovie(item: JSONObject?, cdnDomain: String? = DEFAULT_CDN, sourceName: String = "KKPhim"): Movie? {
             if (item == null) return null
-            val slug = item.optString("slug").ifBlank { item.optString("_id") }
+            val slug = item.optString("slug").ifBlank { item.opt("id")?.toString() }.orEmpty()
+                .ifBlank { item.opt("_id")?.toString() }.orEmpty()
             val title = item.optString("name")
                 .ifBlank { item.optString("title") }
                 .ifBlank { item.optString("origin_name") }
@@ -156,7 +166,7 @@ class KkphimApiService {
                 episodeCurrent = episodeCurrent,
                 time = time,
                 type = type,
-                source = "KKPhim",
+                source = sourceName,
                 playbackEnabled = true
             )
         }
@@ -166,7 +176,10 @@ class KkphimApiService {
             val servers = mutableListOf<EpisodeServer>()
             for (i in 0 until episodesArray.length()) {
                 val srvObj = episodesArray.optJSONObject(i) ?: continue
-                val rawName = srvObj.optString("server_name").ifBlank { "Server ${i + 1}" }
+                val rawName = srvObj.optString("server_name")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .ifBlank { "Server ${i + 1}" }
                 val serverName = if (sourcePrefix.isNotBlank() && !rawName.contains(sourcePrefix, ignoreCase = true)) {
                     "$sourcePrefix · $rawName"
                 } else {
@@ -211,7 +224,10 @@ class KkphimApiService {
             val servers = mutableListOf<EpisodeServer>()
             for (i in 0 until episodesArray.length()) {
                 val srvObj = episodesArray.optJSONObject(i) ?: continue
-                val rawName = srvObj.optString("server_name").ifBlank { "Server ${i + 1}" }
+                val rawName = srvObj.optString("server_name")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .ifBlank { "Server ${i + 1}" }
                 val serverName = if (sourcePrefix.isNotBlank() && !rawName.contains(sourcePrefix, ignoreCase = true)) {
                     "$sourcePrefix · $rawName"
                 } else {
@@ -259,11 +275,29 @@ class KkphimApiService {
         val totalItems: Int = movies.size
     )
 
+    fun getCachedMovieDetail(slug: String): MovieDetailResponse? {
+        val key = slug.trim().lowercase()
+        if (key.isBlank()) return null
+        val cached = detailCache[key] ?: return null
+        return if (System.currentTimeMillis() - cached.first < DETAIL_CACHE_TTL_MS) cached.second else null
+    }
+
+    fun getCachedSearch(keyword: String, page: Int = 1): MovieListResponse? {
+        val key = "${keyword.trim().lowercase()}:$page"
+        val cached = searchCache[key] ?: return null
+        return if (System.currentTimeMillis() - cached.first < SEARCH_CACHE_TTL_MS) cached.second else null
+    }
+
+    fun clearCache() {
+        searchCache.clear()
+        detailCache.clear()
+    }
+
     suspend fun getHome(): MovieListResponse = withContext(Dispatchers.IO) {
         val res = fetchJson("$BASE_URL/v1/api/home")
         val data = res.optJSONObject("data") ?: JSONObject()
         val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
+        val movies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
         MovieListResponse(
             movies = movies,
             cdn = cdn,
@@ -281,7 +315,7 @@ class KkphimApiService {
         val res = fetchJson("$BASE_URL/v1/api/danh-sach/$category?page=$targetPage")
         val data = res.optJSONObject("data") ?: JSONObject()
         val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
+        val movies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
         MovieListResponse(
             movies = movies,
             cdn = cdn,
@@ -294,7 +328,7 @@ class KkphimApiService {
         val res = fetchJson("$BASE_URL/v1/api/danh-sach/phim-moi-cap-nhat?page=$pageNum")
         val data = res.optJSONObject("data") ?: JSONObject()
         val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
+        val movies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
         MovieListResponse(
             movies = movies,
             cdn = cdn,
@@ -314,7 +348,7 @@ class KkphimApiService {
         val res = fetchJson("$BASE_URL/v1/api/danh-sach/$encoded?page=$pageNum&limit=$limitNum")
         val data = res.optJSONObject("data") ?: JSONObject()
         val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
+        val movies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
         MovieListResponse(
             movies = movies,
             cdn = cdn,
@@ -334,7 +368,7 @@ class KkphimApiService {
         val res = fetchJson("$BASE_URL/v1/api/the-loai/$encoded?page=$pageNum&limit=$limitNum")
         val data = res.optJSONObject("data") ?: JSONObject()
         val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
+        val movies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
         MovieListResponse(
             movies = movies,
             cdn = cdn,
@@ -354,7 +388,7 @@ class KkphimApiService {
         val res = fetchJson("$BASE_URL/v1/api/quoc-gia/$encoded?page=$pageNum&limit=$limitNum")
         val data = res.optJSONObject("data") ?: JSONObject()
         val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
+        val movies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
         MovieListResponse(
             movies = movies,
             cdn = cdn,
@@ -362,6 +396,64 @@ class KkphimApiService {
         )
     }
 
+    /**
+     * Dedicated VSMov / Phim4K API Search from https://vsmov.com/api-document
+     */
+    suspend fun searchVsmov(
+        keyword: String,
+        limit: Int = 20,
+        page: Int = 1
+    ): List<Movie> = withContext(Dispatchers.IO) {
+        val kw = keyword.trim()
+        if (kw.isEmpty()) return@withContext emptyList()
+        val encoded = URLEncoder.encode(kw, "UTF-8")
+        val limitNum = if (limit > 0) limit else 20
+        val pageNum = if (page > 0) page else 1
+        try {
+            val res = fetchJson("$VSMOV_BASE_URL/tim-kiem?keyword=$encoded&limit=$limitNum&page=$pageNum", BACKUP_SOURCE_TIMEOUT_MS)
+            val pathImage = res.optString("pathImage").ifBlank { VSMOV_STORAGE_CDN }
+            val items = res.optJSONArray("items") ?: res.optJSONObject("data")?.optJSONArray("items")
+            parseItemsArray(items, pathImage, "Phim4K")
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    /**
+     * Dedicated VSMov / Phim4K Movie Detail from https://vsmov.com/api-document
+     */
+    suspend fun getVsmovMovieDetail(slug: String): MovieDetailResponse? = withContext(Dispatchers.IO) {
+        val clean = slug.trim()
+        if (clean.isEmpty()) return@withContext null
+        try {
+            val encoded = URLEncoder.encode(clean, "UTF-8")
+            val res = fetchJson("$VSMOV_BASE_URL/phim/$encoded", BACKUP_SOURCE_TIMEOUT_MS)
+            val movieObj = res.optJSONObject("movie") ?: return@withContext null
+            val pathImage = res.optString("pathImage").ifBlank { VSMOV_STORAGE_CDN }
+            val baseMovie = normalizeMovie(movieObj, pathImage, "Phim4K") ?: return@withContext null
+            val actors = parseStringOrNameArray(movieObj.optJSONArray("actor"))
+            val categories = parseStringOrNameArray(movieObj.optJSONArray("category"))
+            val countries = parseStringOrNameArray(movieObj.optJSONArray("country"))
+            val servers = parseStandardServers(res.optJSONArray("episodes"), "Phim4K")
+            val enriched = baseMovie.copy(
+                content = movieObj.optString("content").ifBlank { movieObj.optString("description") },
+                actors = actors,
+                categories = categories,
+                countries = countries,
+                episodeTotal = movieObj.optString("episode_total"),
+                status = movieObj.optString("status"),
+                serversList = servers
+            )
+            MovieDetailResponse(movie = enriched, servers = servers)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Multi-Source Fast Parallel Search across KKPhim, VSMov (Phim4K) and NguonC
+     * with In-Memory Caching (5 min TTL) and deduplicated ranking.
+     */
     suspend fun searchMovies(
         keyword: String,
         limit: Int = 20,
@@ -371,6 +463,14 @@ class KkphimApiService {
         if (kw.isEmpty()) {
             return@withContext MovieListResponse(movies = emptyList(), title = "")
         }
+
+        // Cache Check
+        val cacheKey = "${kw.lowercase()}:$page"
+        val cached = searchCache[cacheKey]
+        if (cached != null && (System.currentTimeMillis() - cached.first < SEARCH_CACHE_TTL_MS)) {
+            return@withContext cached.second
+        }
+
         val limitNum = if (limit > 0) limit else 20
         val pageNum = if (page > 0) page else 1
         val encoded = URLEncoder.encode(kw, "UTF-8")
@@ -378,14 +478,14 @@ class KkphimApiService {
         coroutineScope {
             val kkphimDeferred = async {
                 try {
-                    fetchJson("$BASE_URL/v1/api/tim-kiem?keyword=$encoded&limit=$limitNum&page=$pageNum")
+                    fetchJson("$BASE_URL/v1/api/tim-kiem?keyword=$encoded&limit=$limitNum&page=$pageNum", REQUEST_TIMEOUT_MS)
                 } catch (_: Exception) {
                     null
                 }
             }
             val vsmovDeferred = async {
                 try {
-                    fetchJson("$VSMOV_BASE_URL/tim-kiem?keyword=$encoded&page=$pageNum", BACKUP_SOURCE_TIMEOUT_MS)
+                    fetchJson("$VSMOV_BASE_URL/tim-kiem?keyword=$encoded&limit=$limitNum&page=$pageNum", BACKUP_SOURCE_TIMEOUT_MS)
                 } catch (_: Exception) {
                     null
                 }
@@ -404,21 +504,25 @@ class KkphimApiService {
 
             val data = kkphimRes?.optJSONObject("data") ?: JSONObject()
             val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-            val kkphimMovies = parseItemsArray(data.optJSONArray("items"), cdn)
+            val kkphimMovies = parseItemsArray(data.optJSONArray("items"), cdn, "KKPhim")
+
+            val vsmovPathImage = vsmovRes?.optString("pathImage")?.takeIf { it.isNotBlank() } ?: VSMOV_STORAGE_CDN
             val vsmovMovies = parseItemsArray(
                 vsmovRes?.optJSONArray("items") ?: vsmovRes?.optJSONObject("data")?.optJSONArray("items"),
-                VSMOV_CDN
+                vsmovPathImage,
+                "Phim4K"
             )
             val nguoncMovies = parseItemsArray(
                 nguoncRes?.optJSONArray("items"),
-                NGUONC_BASE_URL
+                NGUONC_BASE_URL,
+                "NguonC"
             )
 
             val merged = mutableListOf<Movie>()
-            val seenSlugs = mutableSetOf<String>()
+            val seenKeys = mutableSetOf<String>()
             for (m in kkphimMovies + vsmovMovies + nguoncMovies) {
-                val key = m.slug.lowercase().trim()
-                if (key.isNotEmpty() && seenSlugs.add(key)) {
+                val key = m.slug.lowercase().trim().ifBlank { m.title.lowercase().trim() }
+                if (key.isNotEmpty() && seenKeys.add(key)) {
                     merged.add(m)
                 }
             }
@@ -428,20 +532,35 @@ class KkphimApiService {
                 ?.optInt("totalItems", merged.size)
                 ?.coerceAtLeast(merged.size) ?: merged.size
 
-            MovieListResponse(
+            val response = MovieListResponse(
                 movies = merged,
                 cdn = cdn,
                 title = kw,
                 totalItems = total
             )
+
+            searchCache[cacheKey] = System.currentTimeMillis() to response
+            response
         }
     }
 
+    /**
+     * High-Speed Multi-Source Movie Detail Fetch:
+     * Races KKPhim, VSMov (Phim4K), and NguonC concurrently with instant In-Memory Caching (15 min TTL).
+     */
     suspend fun getMovieDetail(slug: String): MovieDetailResponse = withContext(Dispatchers.IO) {
         val cleanSlug = slug.trim()
         if (cleanSlug.isEmpty()) {
             throw IllegalArgumentException("Slug phim không hợp lệ.")
         }
+
+        // Cache Check
+        val cacheKey = cleanSlug.lowercase()
+        val cached = detailCache[cacheKey]
+        if (cached != null && (System.currentTimeMillis() - cached.first < DETAIL_CACHE_TTL_MS)) {
+            return@withContext cached.second
+        }
+
         val encoded = URLEncoder.encode(cleanSlug, "UTF-8")
 
         coroutineScope {
@@ -479,10 +598,15 @@ class KkphimApiService {
 
             val primaryCdn = when {
                 kkphimRes != null -> DEFAULT_CDN
-                vsmovRes != null -> VSMOV_CDN
+                vsmovRes != null -> vsmovRes?.optString("pathImage")?.takeIf { it.isNotBlank() } ?: VSMOV_STORAGE_CDN
                 else -> NGUONC_BASE_URL
             }
-            val baseMovie = normalizeMovie(primaryMovieObj, primaryCdn)
+            val sourceName = when {
+                kkphimRes != null -> "KKPhim"
+                vsmovRes != null -> "Phim4K"
+                else -> "NguonC"
+            }
+            val baseMovie = normalizeMovie(primaryMovieObj, primaryCdn, sourceName)
                 ?: throw IllegalStateException("Không thể phân tích thông tin phim.")
 
             // Try alternate year-suffixed or year-stripped slug for backup sources if initial slug missed
@@ -495,7 +619,7 @@ class KkphimApiService {
                 ""
             }
 
-            if (altSlug.isNotBlank() && altSlug != cleanSlug) {
+            if (altSlug.isNotBlank() && altSlug != cleanSlug && (vsmovRes == null || nguoncRes == null)) {
                 val encodedAlt = URLEncoder.encode(altSlug, "UTF-8")
                 val altVsmovDeferred = if (vsmovRes == null) {
                     async {
@@ -557,30 +681,33 @@ class KkphimApiService {
                 appendUniqueServers(parseStandardServers(kkphimRes.optJSONArray("episodes"), "KKPhim"))
             }
             if (vsmovRes != null) {
-                val vsmovEps = vsmovRes.optJSONArray("episodes")
-                    ?: vsmovRes.optJSONObject("data")?.optJSONArray("episodes")
+                val vsmovEps = vsmovRes?.optJSONArray("episodes")
+                    ?: vsmovRes?.optJSONObject("data")?.optJSONArray("episodes")
                 appendUniqueServers(parseStandardServers(vsmovEps, "Phim4K"))
             }
             if (nguoncRes != null) {
-                val nguoncEpArr = nguoncRes.optJSONObject("movie")?.optJSONArray("episodes")
-                    ?: nguoncRes.optJSONArray("episodes")
+                val nguoncEpArr = nguoncRes?.optJSONObject("movie")?.optJSONArray("episodes")
+                    ?: nguoncRes?.optJSONArray("episodes")
                 appendUniqueServers(parseNguoncServers(nguoncEpArr, "NguonC"))
             }
 
             val finalMovie = enrichedMovie.copy(serversList = allServers)
-            MovieDetailResponse(
+            val result = MovieDetailResponse(
                 movie = finalMovie,
                 servers = allServers
             )
+
+            detailCache[cacheKey] = System.currentTimeMillis() to result
+            result
         }
     }
 
-    private fun parseItemsArray(array: JSONArray?, cdn: String): List<Movie> {
+    private fun parseItemsArray(array: JSONArray?, cdn: String, sourceName: String = "KKPhim"): List<Movie> {
         if (array == null) return emptyList()
         val list = mutableListOf<Movie>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i)
-            val movie = normalizeMovie(item, cdn)
+            val movie = normalizeMovie(item, cdn, sourceName)
             if (movie != null) {
                 list.add(movie)
             }

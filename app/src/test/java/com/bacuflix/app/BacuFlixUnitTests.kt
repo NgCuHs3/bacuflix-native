@@ -17,6 +17,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
@@ -243,6 +244,71 @@ class BacuFlixUnitTests {
         assertFalse(defaultFilter.isActive)
         val activeFilter = CatalogFilterState(countrySlug = "han-quoc", sortOrder = FilterSortOrder.YEAR_DESC)
         assertTrue(activeFilter.isActive)
+    }
+
+    @Test
+    fun testVsmovApiItemNormalizationAndCache() {
+        // Sample item from https://vsmov.com/api-document
+        val vsmovItem = JSONObject().apply {
+            put("_id", 54305)
+            put("name", "Thợ Săn Giác Thú Omegahorn")
+            put("origin_name", "Kakuseihunter Omegahorn")
+            put("slug", "tho-san-giac-thu-omegahorn")
+            put("poster_url", "https://vsmov.com/storage/images/mH0oCFVu4YleTJYq77mrUgLrFoR.jpg")
+            put("thumb_url", "AwAmCvdNBUuu0TriEmBb3ud6K1q.jpg")
+            put("year", 2026)
+        }
+
+        val movie = KkphimApiService.normalizeMovie(vsmovItem, KkphimApiService.VSMOV_STORAGE_CDN, "Phim4K")
+        assertNotNull(movie)
+        assertEquals("tho-san-giac-thu-omegahorn", movie!!.slug)
+        assertEquals("Thợ Săn Giác Thú Omegahorn", movie.title)
+        assertEquals("https://vsmov.com/storage/images/mH0oCFVu4YleTJYq77mrUgLrFoR.jpg", movie.poster)
+        assertEquals("https://vsmov.com/storage/images/AwAmCvdNBUuu0TriEmBb3ud6K1q.jpg", movie.thumb)
+        assertEquals("2026", movie.year)
+        assertEquals("Phim4K", movie.source)
+
+        // Test VSMov Direct Stream Translation
+        val vsmovEmbed = "https://v8.streamvsmov.com/video/629cc440-6ac6-4bcf-bb68-82f6d229313a"
+        val translatedM3u8 = KkphimApiService.extractDirectM3u8FromEmbed(vsmovEmbed)
+        assertEquals(
+            "https://v8.streamvsmov.com/stream/629cc440-6ac6-4bcf-bb68-82f6d229313a/master.m3u8",
+            translatedM3u8
+        )
+    }
+
+    @Test
+    fun testSmartSearchRankingAccuracyAndYearBoost() {
+        val batman2019 = Movie(
+            id = "batman-2019",
+            slug = "batman-2019",
+            title = "Lego Batman",
+            originTitle = "Lego Batman: Family Matters",
+            year = "2019"
+        )
+        val batman2022 = Movie(
+            id = "the-batman-2022",
+            slug = "the-batman-2022",
+            title = "The Batman",
+            originTitle = "The Batman 2022",
+            year = "2022"
+        )
+
+        // Query contains year 2022
+        val score2019 = com.bacuflix.app.data.SmartSearchEngine.scoreMovieMatch(batman2019, "batman 2022", "batman 2022")
+        val score2022 = com.bacuflix.app.data.SmartSearchEngine.scoreMovieMatch(batman2022, "batman 2022", "batman 2022")
+        assertTrue("Batman 2022 should score significantly higher when searching 'batman 2022'", score2022 > score2019)
+
+        // Unaccented query matches Vietnamese movie
+        val spiderMan = Movie(
+            id = "nguoi-nhen-khong-con-nha",
+            slug = "nguoi-nhen-khong-con-nha",
+            title = "Người Nhện: Không Còn Nhà",
+            originTitle = "Spider-Man: No Way Home",
+            year = "2021"
+        )
+        val scoreUnaccented = com.bacuflix.app.data.SmartSearchEngine.scoreMovieMatch(spiderMan, "nguoi nhen", "nguoi nhen")
+        assertTrue("Unaccented search 'nguoi nhen' must strongly match 'Người Nhện'", scoreUnaccented >= 400.0)
     }
 
     private fun buildPngChunk(type: String, data: ByteArray): ByteArray {

@@ -318,8 +318,28 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+
+        // Instant local pool & search cache response (< 5ms)
+        val localMatches = buildLocalSearchPool().filter { movie ->
+            SmartSearchEngine.scoreMovieMatch(movie, trimmed, trimmed) >= 120.0
+        }.sortedByDescending { SmartSearchEngine.scoreMovieMatch(it, trimmed, trimmed) }
+
+        val cachedRes = kkphimApi.getCachedSearch(trimmed)
+        val combinedInstant = (cachedRes?.movies.orEmpty() + localMatches).distinctBy { it.slug }
+
+        if (combinedInstant.isNotEmpty()) {
+            val prev = if (_uiState.value.activeTab != HomeTab.SEARCH) _uiState.value.activeTab else _uiState.value.previousTab
+            _uiState.value = _uiState.value.copy(
+                activeTab = HomeTab.SEARCH,
+                previousTab = prev,
+                gridMovies = combinedInstant,
+                isLoadingTab = false,
+                errorMessage = null
+            )
+        }
+
         searchDebounceJob = viewModelScope.launch {
-            delay(280L)
+            delay(220L)
             executeSearch(trimmed)
         }
     }
@@ -334,13 +354,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value.previousTab
         }
 
+        val cachedRes = kkphimApi.getCachedSearch(kw)
         _uiState.value = _uiState.value.copy(
             activeTab = HomeTab.SEARCH,
             previousTab = prev,
             searchQuery = kw,
             currentPage = 1,
             hasMorePages = true,
-            isLoadingTab = true,
+            gridMovies = cachedRes?.movies ?: _uiState.value.gridMovies,
+            isLoadingTab = cachedRes == null && _uiState.value.gridMovies.isEmpty(),
             isLoadingMore = false,
             errorMessage = null
         )
@@ -366,11 +388,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     errorMessage = null
                 )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    gridMovies = emptyList(),
-                    isLoadingTab = false,
-                    errorMessage = e.message ?: "Lỗi khi tìm kiếm phim."
-                )
+                if (_uiState.value.gridMovies.isEmpty()) {
+                    _uiState.value = _uiState.value.copy(
+                        gridMovies = emptyList(),
+                        isLoadingTab = false,
+                        errorMessage = e.message ?: "Lỗi khi tìm kiếm phim."
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(isLoadingTab = false)
+                }
             }
         }
     }
@@ -586,6 +612,34 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openMovieDetail(movie: Movie) {
+        val cachedDetail = kkphimApi.getCachedMovieDetail(movie.slug)
+        if (cachedDetail != null) {
+            watchHistoryRepo.enrichMetadata(cachedDetail.movie)
+            mlRecommendationService.recordMovieInteraction(cachedDetail.movie, "view")
+            _uiState.value = _uiState.value.copy(
+                detailModalMovie = cachedDetail.movie,
+                detailResponse = cachedDetail,
+                detailSimilarMovies = emptyList(),
+                isDetailLoading = false,
+                detailError = null
+            )
+            viewModelScope.launch {
+                val similar = try {
+                    mlRecommendationService.getSimilarMovies(
+                        targetMovie = cachedDetail.movie,
+                        localPool = buildLocalSearchPool(),
+                        limit = 10
+                    )
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (_uiState.value.detailModalMovie?.effectiveKey == cachedDetail.movie.effectiveKey) {
+                    _uiState.value = _uiState.value.copy(detailSimilarMovies = similar)
+                }
+            }
+            return
+        }
+
         _uiState.value = _uiState.value.copy(
             detailModalMovie = movie,
             detailResponse = null,

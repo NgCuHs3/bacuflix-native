@@ -1,5 +1,6 @@
 package com.bacuflix.app.ui.detail
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -149,62 +150,23 @@ fun MovieDetailModal(
                         )
                 )
 
-                when {
-                    isLoading -> {
-                        Column(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator(color = FlixColors.Red)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Đang tải thông tin phim \"${moviePreview.title}\"...",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = FlixColors.TextSecondary
-                            )
-                        }
-                    }
+                val movie = detailResponse?.movie ?: moviePreview
+                val servers = detailResponse?.servers.orEmpty()
+                val currentServer = servers.getOrNull(activeServerIndex) ?: servers.firstOrNull()
+                val episodes = currentServer?.episodes.orEmpty()
+                val overallResume = resumeInfoProvider(movie.effectiveKey, null)
 
-                    errorMessage != null -> {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = errorMessage,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = FlixColors.RedBright
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Button(
-                                onClick = onRetry,
-                                colors = ButtonDefaults.buttonColors(containerColor = FlixColors.Red)
-                            ) {
-                                Text("Thử lại", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp)
+                ) {
+                    Spacer(modifier = Modifier.height(28.dp))
 
-                    detailResponse != null -> {
-                        val movie = detailResponse.movie
-                        val servers = detailResponse.servers
-                        val currentServer = servers.getOrNull(activeServerIndex) ?: servers.firstOrNull()
-                        val episodes = currentServer?.episodes.orEmpty()
-                        val overallResume = resumeInfoProvider(movie.effectiveKey, null)
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(20.dp)
-                        ) {
-                            Spacer(modifier = Modifier.height(28.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
                                 // Poster
@@ -495,7 +457,62 @@ fun MovieDetailModal(
 
                             Spacer(modifier = Modifier.height(20.dp))
 
-                            // Section Header + Quick Episode Search Input (when >= 12 episodes)
+                            if (isLoading && detailResponse == null) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp),
+                                    color = FlixColors.BgElevated,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, FlixColors.Border)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(18.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            color = FlixColors.Red,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = "Đang tải nguồn phát & danh sách tập...",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = FlixColors.TextSecondary
+                                        )
+                                    }
+                                }
+                            } else if (errorMessage != null && detailResponse == null) {
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp),
+                                    color = FlixColors.BgElevated,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, FlixColors.Border)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(18.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = errorMessage,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = FlixColors.RedBright
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Button(
+                                            onClick = onRetry,
+                                            colors = ButtonDefaults.buttonColors(containerColor = FlixColors.Red)
+                                        ) {
+                                            Text("Thử lại", fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Section Header + Quick Episode Search Input (when >= 12 episodes)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -713,38 +730,37 @@ fun MovieDetailModal(
                                     color = FlixColors.TextSecondary
                                 )
                             }
+                        }
 
-                            // Similar Movies Section ("Phim tương tự cùng thể loại")
-                            if (similarMovies.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(26.dp))
-                                Text(
-                                    text = "Phim tương tự cùng thể loại",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Color.White
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    similarMovies.forEach { simMovie ->
-                                        CatalogMovieCard(
-                                            movie = simMovie,
-                                            isFavorite = favoriteKeys.contains(simMovie.effectiveKey),
-                                            onClick = { onSelectSimilarMovie(simMovie) },
-                                            onToggleFavorite = { onToggleFavorite(simMovie) },
-                                            modifier = Modifier.width(135.dp)
-                                        )
-                                    }
+                        // Similar Movies Section ("Phim tương tự cùng thể loại")
+                        if (similarMovies.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(26.dp))
+                            Text(
+                                text = "Phim tương tự cùng thể loại",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                similarMovies.forEach { simMovie ->
+                                    CatalogMovieCard(
+                                        movie = simMovie,
+                                        isFavorite = favoriteKeys.contains(simMovie.effectiveKey),
+                                        onClick = { onSelectSimilarMovie(simMovie) },
+                                        onToggleFavorite = { onToggleFavorite(simMovie) },
+                                        modifier = Modifier.width(135.dp)
+                                    )
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(24.dp))
                         }
+
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
-                }
 
                 // Close Button
                 IconButton(
