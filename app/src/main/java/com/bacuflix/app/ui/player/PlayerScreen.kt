@@ -2,9 +2,12 @@ package com.bacuflix.app.ui.player
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.os.Build
+import android.util.Rational
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.WebChromeClient
@@ -20,16 +23,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,22 +46,32 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -102,6 +119,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.bacuflix.app.model.EpisodeResumeInfo
+import com.bacuflix.app.model.EpisodeServer
 import com.bacuflix.app.model.Movie
 import com.bacuflix.app.model.SubtitleCue
 import com.bacuflix.app.player.PlayerController
@@ -114,7 +132,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.roundToInt
 
-@OptIn(UnstableApi::class)
+private val PLAYBACK_SPEED_OPTIONS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
+
+@OptIn(UnstableApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(
     initialMovie: Movie,
@@ -144,6 +164,30 @@ fun PlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionTick by remember { mutableIntStateOf(0) }
     var isFullscreenLandscape by remember { mutableStateOf(false) }
+    var isInPipMode by remember { mutableStateOf(false) }
+
+    // Screen lock state
+    var isScreenLocked by remember { mutableStateOf(false) }
+
+    // Aspect ratio resize mode
+    var resizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+
+    // Playback speed & long-press 2.0x boost state
+    var normalPlaybackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var isLongPressBoostActive by remember { mutableStateOf(false) }
+    var showSpeedPicker by remember { mutableStateOf(false) }
+
+    // In-player Episode & Server drawer state
+    var isEpisodeDrawerOpen by remember { mutableStateOf(false) }
+    var drawerEpisodeRangeIdx by remember { mutableIntStateOf(0) }
+
+    // Sleep timer state
+    var showSleepTimerMenu by remember { mutableStateOf(false) }
+    var sleepTimerRemainingSec by remember { mutableIntStateOf(0) }
+    var sleepStopAtEpisodeEnd by remember { mutableStateOf(false) }
+
+    // Skip Intro state
+    var skipIntroDismissed by remember(currentMovie.id, currentMovie.currentEpisodeIndex) { mutableStateOf(false) }
 
     // Seek & timeline state
     var positionMs by remember { mutableLongStateOf(0L) }
@@ -165,11 +209,20 @@ fun PlayerScreen(
     var volumeHudVisible by remember { mutableStateOf(false) }
     var volumeHudTick by remember { mutableIntStateOf(0) }
 
+    // Brightness HUD state
+    var screenBrightness by remember {
+        val currentAttr = activity?.window?.attributes?.screenBrightness ?: -1f
+        mutableFloatStateOf(if (currentAttr in 0.05f..1.0f) currentAttr else 0.7f)
+    }
+    var brightnessHudVisible by remember { mutableStateOf(false) }
+    var brightnessHudTick by remember { mutableIntStateOf(0) }
+
     // Auto-next episode countdown state
     var autoNextRemainingSec by remember { mutableIntStateOf(0) }
     var autoNextCancelled by remember(currentMovie.id, currentMovie.currentEpisodeIndex) { mutableStateOf(false) }
 
     val episodes = currentMovie.episodesList
+    val servers = currentMovie.serversList
     val currentEpIdx = currentMovie.currentEpisodeIndex
     val hasPrevEpisode = episodes.isNotEmpty() && currentEpIdx > 0
     val hasNextEpisode = episodes.isNotEmpty() && currentEpIdx < episodes.lastIndex
@@ -204,6 +257,8 @@ fun PlayerScreen(
         forceFallbackEmbed = false
         autoNextRemainingSec = 0
         autoNextCancelled = false
+        skipIntroDismissed = false
+        isEpisodeDrawerOpen = false
         currentMovie = currentMovie.copy(
             id = baseKey,
             slug = cleanSlug,
@@ -215,6 +270,36 @@ fun PlayerScreen(
             fallbackEmbed = embed,
             resumeTime = savedResume
         )
+    }
+
+    fun switchToServer(targetServer: EpisodeServer) {
+        if (targetServer.episodes.isEmpty()) return
+        saveCurrentProgress(force = true)
+        val safeIdx = currentEpIdx.coerceIn(0, targetServer.episodes.lastIndex)
+        val ep = targetServer.episodes[safeIdx]
+        val m3u8 = ep.m3u8.trim()
+        val embed = ep.fallbackEmbed.trim()
+        val seriesTitle = currentMovie.seriesTitle.ifBlank {
+            currentMovie.title.substringBefore(" - ")
+        }
+        val epName = ep.name.ifBlank { "Tập ${safeIdx + 1}" }
+        val curSec = (positionMs / 1000L).toInt().coerceAtLeast(0)
+
+        forceFallbackEmbed = false
+        isEpisodeDrawerOpen = false
+        currentMovie = currentMovie.copy(
+            title = "$seriesTitle - $epName",
+            seriesTitle = seriesTitle,
+            episodeName = epName,
+            serverName = targetServer.serverName,
+            source = targetServer.serverName,
+            episodesList = targetServer.episodes,
+            currentEpisodeIndex = safeIdx,
+            m3u8 = m3u8.ifBlank { embed },
+            fallbackEmbed = embed,
+            resumeTime = curSec
+        )
+        onShowToast("Đã chuyển sang nguồn phát: ${targetServer.serverName}")
     }
 
     fun performRelativeSeek(deltaSeconds: Int) {
@@ -241,11 +326,66 @@ fun PlayerScreen(
         } catch (_: Exception) {}
     }
 
+    fun adjustBrightness(delta: Float) {
+        val act = activity ?: return
+        try {
+            val nextBright = (screenBrightness + delta).coerceIn(0.05f, 1.0f)
+            screenBrightness = nextBright
+            val lp = act.window.attributes
+            lp.screenBrightness = nextBright
+            act.window.attributes = lp
+            brightnessHudVisible = true
+            brightnessHudTick++
+            lastInteractionTick++
+        } catch (_: Exception) {}
+    }
+
+    fun applyPlaybackSpeed(speed: Float) {
+        normalPlaybackSpeed = speed
+        if (!isLongPressBoostActive) {
+            PlayerController.setPlaybackSpeed(context, speed)
+        }
+        onShowToast("Tốc độ phát: ${speed}x")
+    }
+
+    fun cycleAspectRatio() {
+        resizeMode = when (resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
+        playerViewRef?.resizeMode = resizeMode
+        val modeLabel = when (resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Phóng đầy màn hình (Zoom)"
+            AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Kéo giãn toàn màn (Fill)"
+            else -> "Vừa khung hình chuẩn (Fit)"
+        }
+        onShowToast("Khung hình: $modeLabel")
+    }
+
+    fun enterPipMode() {
+        val act = activity ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                controlsVisible = false
+                val params = PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+                act.enterPictureInPictureMode(params)
+                isInPipMode = true
+            } catch (_: Exception) {
+                onShowToast("Thiết bị không hỗ trợ chế độ cửa sổ nổi PiP.")
+            }
+        } else {
+            onShowToast("Cần Android 8.0+ để dùng Picture-in-Picture.")
+        }
+    }
+
     fun hidePlayerSystemBars() {
         val act = activity ?: return
         try {
             val window = act.window
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 window.attributes = window.attributes.apply {
                     layoutInDisplayCutoutMode =
                         WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -262,6 +402,9 @@ fun PlayerScreen(
         val act = activity ?: return
         try {
             val window = act.window
+            val lp = window.attributes
+            lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            window.attributes = lp
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.show(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
         } catch (_: Exception) {}
@@ -286,24 +429,39 @@ fun PlayerScreen(
     }
 
     BackHandler {
-        saveCurrentProgress(force = true)
-        if (isFullscreenLandscape) {
-            toggleFullscreenOrientation()
+        when {
+            isScreenLocked -> {
+                controlsVisible = true
+                lastInteractionTick++
+                onShowToast("Màn hình đang khóa — nhấn nút 'Mở khóa' để thao tác")
+            }
+            isEpisodeDrawerOpen -> isEpisodeDrawerOpen = false
+            showSpeedPicker -> showSpeedPicker = false
+            showSleepTimerMenu -> showSleepTimerMenu = false
+            else -> {
+                saveCurrentProgress(force = true)
+                if (isFullscreenLandscape) {
+                    toggleFullscreenOrientation()
+                }
+                restoreSystemBars()
+                PlayerController.stopAndRelease(context)
+                onBackToDetail()
+            }
         }
-        restoreSystemBars()
-        PlayerController.stopAndRelease(context)
-        onBackToDetail()
     }
 
-    // Keep screen awake during foreground playback, handle seamless background audio transition, & cleanup on exit
+    // Keep screen awake during foreground playback, handle PiP & background audio transition, & cleanup on exit
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
+            val inPip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                activity?.isInPictureInPictureMode == true
+            } else false
+            isInPipMode = inPip
+
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
                     saveCurrentProgress(force = true)
-                    if (activity?.isChangingConfigurations != true) {
-                        // Detach PlayerView surface before SurfaceView destruction so ExoPlayer
-                        // continues playing audio in the background without surface errors.
+                    if (activity?.isChangingConfigurations != true && !inPip) {
                         playerViewRef?.player = null
                         PlayerController.setBackgroundMode(true)
                     }
@@ -369,6 +527,7 @@ fun PlayerScreen(
         if (!useWebViewEmbed) {
             val startMs = (currentMovie.resumeTime.coerceAtLeast(0)) * 1000L
             PlayerController.startPlayback(context, currentMovie, startMs)
+            PlayerController.setPlaybackSpeed(context, normalPlaybackSpeed)
             if (currentMovie.resumeTime > 5) {
                 onShowToast("Tiếp tục phát từ ${FormatTime.formatTime(currentMovie.resumeTime.toDouble())}")
             }
@@ -397,6 +556,10 @@ fun PlayerScreen(
                 positionMs = pos
                 if (dur > 0L) durationMs = dur
 
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    isInPipMode = activity?.isInPictureInPictureMode == true
+                }
+
                 if (subtitlesEnabled && subtitleCues.isNotEmpty()) {
                     activeSubtitleText = SubtitleParser.getActiveSubtitleText(subtitleCues, pos / 1000.0)
                 } else {
@@ -412,19 +575,42 @@ fun PlayerScreen(
         }
     }
 
+    // Sleep timer countdown
+    LaunchedEffect(sleepTimerRemainingSec) {
+        if (sleepTimerRemainingSec > 0) {
+            delay(1000L)
+            val next = sleepTimerRemainingSec - 1
+            sleepTimerRemainingSec = next
+            if (next == 0) {
+                try {
+                    val player = PlayerController.getOrCreatePlayer(context)
+                    player.pause()
+                    saveCurrentProgress(force = true)
+                    onShowToast("Đã tạm dừng phim theo hẹn giờ ngủ")
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     // Auto-hide controls after 4.5s while playing
-    LaunchedEffect(controlsVisible, lastInteractionTick, playbackState.isPlaying) {
-        if (controlsVisible && playbackState.isPlaying && autoNextRemainingSec == 0) {
+    LaunchedEffect(controlsVisible, lastInteractionTick, playbackState.isPlaying, isEpisodeDrawerOpen, showSpeedPicker, showSleepTimerMenu) {
+        if (controlsVisible && playbackState.isPlaying && autoNextRemainingSec == 0 && !isEpisodeDrawerOpen && !showSpeedPicker && !showSleepTimerMenu) {
             delay(4500L)
             controlsVisible = false
         }
     }
 
-    // Auto-hide volume HUD after 1.6s
+    // Auto-hide volume & brightness HUDs after 1.6s
     LaunchedEffect(volumeHudVisible, volumeHudTick) {
         if (volumeHudVisible) {
             delay(1600L)
             volumeHudVisible = false
+        }
+    }
+    LaunchedEffect(brightnessHudVisible, brightnessHudTick) {
+        if (brightnessHudVisible) {
+            delay(1600L)
+            brightnessHudVisible = false
         }
     }
 
@@ -442,19 +628,35 @@ fun PlayerScreen(
         }
     }
 
-    // Trigger 5-second Auto-Next Episode countdown when playback ends
-    LaunchedEffect(playbackState.isEnded, hasNextEpisode, autoNextCancelled) {
-        if (playbackState.isEnded && hasNextEpisode && !autoNextCancelled) {
-            for (sec in 5 downTo 1) {
-                autoNextRemainingSec = sec
-                delay(1000L)
+    // Trigger 5-second Auto-Next Episode countdown when playback ends (unless Sleep Timer "Hết tập" is active)
+    LaunchedEffect(playbackState.isEnded, hasNextEpisode, autoNextCancelled, sleepStopAtEpisodeEnd) {
+        if (playbackState.isEnded) {
+            if (sleepStopAtEpisodeEnd) {
+                sleepStopAtEpisodeEnd = false
+                autoNextRemainingSec = 0
+                saveCurrentProgress(force = true)
+                onShowToast("Đã dừng phát khi hết tập theo hẹn giờ ngủ")
+            } else if (hasNextEpisode && !autoNextCancelled) {
+                for (sec in 5 downTo 1) {
+                    autoNextRemainingSec = sec
+                    delay(1000L)
+                }
+                autoNextRemainingSec = 0
+                switchToEpisode(currentEpIdx + 1)
+            } else {
+                autoNextRemainingSec = 0
             }
-            autoNextRemainingSec = 0
-            switchToEpisode(currentEpIdx + 1)
         } else {
             autoNextRemainingSec = 0
         }
     }
+
+    val showSkipIntroButton = !useWebViewEmbed &&
+        !isInPipMode &&
+        !isScreenLocked &&
+        !skipIntroDismissed &&
+        positionMs in 15_000L..145_000L &&
+        durationMs > 600_000L
 
     Box(
         modifier = Modifier
@@ -472,7 +674,7 @@ fun PlayerScreen(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        this.resizeMode = resizeMode
                         keepScreenOn = true
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -484,6 +686,7 @@ fun PlayerScreen(
                 },
                 update = { view ->
                     playerViewRef = view
+                    view.resizeMode = resizeMode
                     val targetPlayer = PlayerController.getOrCreatePlayer(context)
                     if (view.player !== targetPlayer) {
                         view.player = targetPlayer
@@ -492,97 +695,195 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Left / Center / Right Gesture Zones for Single-Tap Controls & Double-Tap 10s Seek
-            Row(modifier = Modifier.fillMaxSize()) {
-                // Left 35%: Double-tap to rewind 10s
-                Box(
-                    modifier = Modifier
-                        .weight(0.35f)
-                        .fillMaxHeight()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    controlsVisible = !controlsVisible
-                                    lastInteractionTick++
-                                },
-                                onDoubleTap = {
-                                    performRelativeSeek(-10)
-                                    leftSeekCumulativeSec += 10
-                                    lastInteractionTick++
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = leftSeekCumulativeSec > 0,
-                        enter = fadeIn(),
-                        exit = fadeOut()
-                    ) {
-                        SeekRippleBadge(
-                            isRewind = true,
-                            seconds = leftSeekCumulativeSec
-                        )
-                    }
-                }
-
-                // Center 30%: Single-tap to toggle controls, Double-tap to Play/Pause
-                Box(
-                    modifier = Modifier
-                        .weight(0.30f)
-                        .fillMaxHeight()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    controlsVisible = !controlsVisible
-                                    lastInteractionTick++
-                                },
-                                onDoubleTap = {
-                                    val player = PlayerController.getOrCreatePlayer(context)
-                                    if (player.isPlaying) {
-                                        player.pause()
-                                        saveCurrentProgress()
-                                    } else {
-                                        player.play()
+            // Left / Center / Right Gesture Zones for Single-Tap, Double-Tap 10s Seek, Long-Press 2x Speed, & Vertical Swipe Brightness/Volume
+            if (!isInPipMode) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // Left 35%: Double-tap to rewind 10s, Long-press 2x speed, Vertical drag for Brightness
+                    Box(
+                        modifier = Modifier
+                            .weight(0.35f)
+                            .fillMaxHeight()
+                            .pointerInput(isScreenLocked, normalPlaybackSpeed) {
+                                detectTapGestures(
+                                    onTap = {
+                                        controlsVisible = !controlsVisible
+                                        lastInteractionTick++
+                                    },
+                                    onDoubleTap = {
+                                        if (!isScreenLocked) {
+                                            performRelativeSeek(-10)
+                                            leftSeekCumulativeSec += 10
+                                            lastInteractionTick++
+                                        }
+                                    },
+                                    onLongPress = {
+                                        if (!isScreenLocked) {
+                                            isLongPressBoostActive = true
+                                            PlayerController.setPlaybackSpeed(context, 2.0f)
+                                        }
+                                    },
+                                    onPress = {
+                                        tryAwaitRelease()
+                                        if (isLongPressBoostActive) {
+                                            isLongPressBoostActive = false
+                                            PlayerController.setPlaybackSpeed(context, normalPlaybackSpeed)
+                                        }
                                     }
-                                    controlsVisible = true
-                                    lastInteractionTick++
+                                )
+                            }
+                            .pointerInput(isScreenLocked) {
+                                if (!isScreenLocked) {
+                                    detectVerticalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        val delta = (-dragAmount / size.height.coerceAtLeast(1)) * 1.15f
+                                        adjustBrightness(delta)
+                                    }
                                 }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedVisibility(
+                            visible = leftSeekCumulativeSec > 0,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            SeekRippleBadge(
+                                isRewind = true,
+                                seconds = leftSeekCumulativeSec
                             )
                         }
-                )
+                    }
 
-                // Right 35%: Double-tap to forward 10s
-                Box(
-                    modifier = Modifier
-                        .weight(0.35f)
-                        .fillMaxHeight()
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    controlsVisible = !controlsVisible
-                                    lastInteractionTick++
-                                },
-                                onDoubleTap = {
-                                    performRelativeSeek(10)
-                                    rightSeekCumulativeSec += 10
-                                    lastInteractionTick++
+                    // Center 30%: Single-tap to toggle controls, Double-tap to Play/Pause, Long-press 2x speed
+                    Box(
+                        modifier = Modifier
+                            .weight(0.30f)
+                            .fillMaxHeight()
+                            .pointerInput(isScreenLocked, normalPlaybackSpeed) {
+                                detectTapGestures(
+                                    onTap = {
+                                        controlsVisible = !controlsVisible
+                                        lastInteractionTick++
+                                    },
+                                    onDoubleTap = {
+                                        if (!isScreenLocked) {
+                                            val player = PlayerController.getOrCreatePlayer(context)
+                                            if (player.isPlaying) {
+                                                player.pause()
+                                                saveCurrentProgress()
+                                            } else {
+                                                player.play()
+                                            }
+                                            controlsVisible = true
+                                            lastInteractionTick++
+                                        }
+                                    },
+                                    onLongPress = {
+                                        if (!isScreenLocked) {
+                                            isLongPressBoostActive = true
+                                            PlayerController.setPlaybackSpeed(context, 2.0f)
+                                        }
+                                    },
+                                    onPress = {
+                                        tryAwaitRelease()
+                                        if (isLongPressBoostActive) {
+                                            isLongPressBoostActive = false
+                                            PlayerController.setPlaybackSpeed(context, normalPlaybackSpeed)
+                                        }
+                                    }
+                                )
+                            }
+                    )
+
+                    // Right 35%: Double-tap to forward 10s, Long-press 2x speed, Vertical drag for Volume
+                    Box(
+                        modifier = Modifier
+                            .weight(0.35f)
+                            .fillMaxHeight()
+                            .pointerInput(isScreenLocked, normalPlaybackSpeed) {
+                                detectTapGestures(
+                                    onTap = {
+                                        controlsVisible = !controlsVisible
+                                        lastInteractionTick++
+                                    },
+                                    onDoubleTap = {
+                                        if (!isScreenLocked) {
+                                            performRelativeSeek(10)
+                                            rightSeekCumulativeSec += 10
+                                            lastInteractionTick++
+                                        }
+                                    },
+                                    onLongPress = {
+                                        if (!isScreenLocked) {
+                                            isLongPressBoostActive = true
+                                            PlayerController.setPlaybackSpeed(context, 2.0f)
+                                        }
+                                    },
+                                    onPress = {
+                                        tryAwaitRelease()
+                                        if (isLongPressBoostActive) {
+                                            isLongPressBoostActive = false
+                                            PlayerController.setPlaybackSpeed(context, normalPlaybackSpeed)
+                                        }
+                                    }
+                                )
+                            }
+                            .pointerInput(isScreenLocked) {
+                                if (!isScreenLocked) {
+                                    detectVerticalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        val delta = (-dragAmount / size.height.coerceAtLeast(1)) * 1.15f
+                                        adjustVolume(delta)
+                                    }
                                 }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = rightSeekCumulativeSec > 0,
-                        enter = fadeIn(),
-                        exit = fadeOut()
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        SeekRippleBadge(
-                            isRewind = false,
-                            seconds = rightSeekCumulativeSec
-                        )
+                        AnimatedVisibility(
+                            visible = rightSeekCumulativeSec > 0,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            SeekRippleBadge(
+                                isRewind = false,
+                                seconds = rightSeekCumulativeSec
+                            )
+                        }
                     }
                 }
+            }
+        }
+
+        // Long-Press 2.0x Speed Boost Badge Overlay
+        AnimatedVisibility(
+            visible = isLongPressBoostActive && !isInPipMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 64.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .background(Color(0xE6E50914), RoundedCornerShape(999.dp))
+                    .border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(999.dp))
+                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FastForward,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Đang phát nhanh 2.0x",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
         }
 
@@ -592,7 +893,7 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(
-                        bottom = if (controlsVisible) 150.dp else 38.dp,
+                        bottom = if (controlsVisible && !isScreenLocked && !isInPipMode) 150.dp else 32.dp,
                         start = 24.dp,
                         end = 24.dp
                     )
@@ -602,16 +903,64 @@ fun PlayerScreen(
                 Text(
                     text = activeSubtitleText,
                     color = Color.White,
-                    fontSize = 16.sp,
+                    fontSize = if (isInPipMode) 11.sp else 16.sp,
                     fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.Center
                 )
             }
         }
 
-        // Volume HUD Overlay
+        // Brightness HUD Overlay (Top-Left)
         AnimatedVisibility(
-            visible = volumeHudVisible,
+            visible = brightnessHudVisible && !isInPipMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(top = 72.dp, start = 24.dp)
+        ) {
+            val pct = (screenBrightness * 100f).roundToInt().coerceIn(5, 100)
+            Row(
+                modifier = Modifier
+                    .background(Color(0xD9121318), RoundedCornerShape(999.dp))
+                    .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.BrightnessHigh,
+                    contentDescription = "Brightness",
+                    tint = Color(0xFFFACC15),
+                    modifier = Modifier.size(18.dp)
+                )
+                Box(
+                    modifier = Modifier
+                        .width(90.dp)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(0x33FFFFFF))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(screenBrightness.coerceIn(0f, 1f))
+                            .background(Color(0xFFFACC15))
+                    )
+                }
+                Text(
+                    text = "$pct%",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Volume HUD Overlay (Top-Right)
+        AnimatedVisibility(
+            visible = volumeHudVisible && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
@@ -681,7 +1030,10 @@ fun PlayerScreen(
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(14.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             Button(
                                 onClick = {
                                     val resumeMs = positionMs.coerceAtLeast(0L)
@@ -692,6 +1044,13 @@ fun PlayerScreen(
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Thử lại", fontWeight = FontWeight.Bold)
+                            }
+                            if (servers.size > 1) {
+                                OutlinedButton(
+                                    onClick = { isEpisodeDrawerOpen = true }
+                                ) {
+                                    Text("Đổi Server (${servers.size})", color = Color.White)
+                                }
                             }
                             if (currentMovie.fallbackEmbed.isNotBlank()) {
                                 OutlinedButton(
@@ -709,23 +1068,81 @@ fun PlayerScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
                             color = FlixColors.Red,
-                            modifier = Modifier.size(48.dp)
+                            modifier = Modifier.size(if (isInPipMode) 28.dp else 48.dp)
                         )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Đang tải luồng phát...",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                        if (!isInPipMode) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Đang tải luồng phát...",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
+                }
+            }
+        }
+
+        // Skip Intro (+85s) Floating Button
+        AnimatedVisibility(
+            visible = showSkipIntroButton && autoNextRemainingSec == 0,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = if (controlsVisible) 142.dp else 36.dp, end = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xE614161F))
+                    .border(1.2.dp, FlixColors.RedBright, RoundedCornerShape(10.dp)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clickable {
+                            performRelativeSeek(85)
+                            skipIntroDismissed = true
+                            onShowToast("Đã bỏ qua phần mở đầu (+85s)")
+                        }
+                        .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FastForward,
+                        contentDescription = null,
+                        tint = FlixColors.RedBright,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Bỏ qua Mở đầu (+85s)",
+                        color = Color.White,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clickable { skipIntroDismissed = true }
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Đóng",
+                        tint = FlixColors.TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
             }
         }
 
         // 5-Second Auto-Next Episode Countdown Overlay
         AnimatedVisibility(
-            visible = autoNextRemainingSec > 0 && hasNextEpisode,
+            visible = autoNextRemainingSec > 0 && hasNextEpisode && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
@@ -787,9 +1204,52 @@ fun PlayerScreen(
             }
         }
 
-        // Top Bar & Bottom Controls Overlay
+        // Locked Screen Floating Unlock Pill
         AnimatedVisibility(
-            visible = controlsVisible || useWebViewEmbed,
+            visible = isScreenLocked && controlsVisible && !isInPipMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 32.dp)
+        ) {
+            Surface(
+                color = Color(0xE614161F),
+                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier
+                    .border(1.5.dp, FlixColors.RedBright, RoundedCornerShape(999.dp))
+                    .clickable {
+                        isScreenLocked = false
+                        controlsVisible = true
+                        lastInteractionTick++
+                        onShowToast("Đã mở khóa màn hình cảm ứng")
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LockOpen,
+                        contentDescription = "Mở khóa",
+                        tint = FlixColors.RedBright,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Chạm để mở khóa màn hình",
+                        color = Color.White,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Top Bar & Bottom Controls Overlay (hidden when Screen is Locked or in PiP mode)
+        AnimatedVisibility(
+            visible = (controlsVisible || useWebViewEmbed) && !isScreenLocked && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -865,7 +1325,7 @@ fun PlayerScreen(
                             .padding(horizontal = 6.dp, vertical = 4.dp)
                     )
 
-                    // Now Playing Pill + Movie/Episode Title
+                    // Now Playing Pill + Movie/Episode Title + Active Sleep Timer Badge
                     Row(
                         modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
@@ -890,8 +1350,142 @@ fun PlayerScreen(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
+                        if (sleepTimerRemainingSec > 0 || sleepStopAtEpisodeEnd) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(Color(0x33E50914))
+                                    .border(1.dp, FlixColors.RedBright, RoundedCornerShape(999.dp))
+                                    .clickable { showSleepTimerMenu = !showSleepTimerMenu }
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                Text(
+                                    text = if (sleepStopAtEpisodeEnd) "🌙 Hết tập" else "🌙 ${FormatTime.formatTime(sleepTimerRemainingSec.toDouble())}",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Speed Picker Popup Card
+                if (showSpeedPicker && !useWebViewEmbed) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 135.dp, end = 24.dp)
+                            .background(Color(0xF514161F), RoundedCornerShape(14.dp))
+                            .border(1.dp, FlixColors.Border, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Tốc độ phát (Nhấn giữ màn hình để tua 2.0x)",
+                            color = FlixColors.TextSecondary,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PLAYBACK_SPEED_OPTIONS.forEach { spd ->
+                                val active = kotlin.math.abs(normalPlaybackSpeed - spd) < 0.01f
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (active) FlixColors.Red else FlixColors.BgElevated)
+                                        .clickable {
+                                            applyPlaybackSpeed(spd)
+                                            showSpeedPicker = false
+                                            lastInteractionTick++
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        text = "${spd}x",
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sleep Timer Popup Card
+                if (showSleepTimerMenu && !useWebViewEmbed) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(bottom = 135.dp, end = 24.dp)
+                            .background(Color(0xF514161F), RoundedCornerShape(14.dp))
+                            .border(1.dp, FlixColors.Border, RoundedCornerShape(14.dp))
+                            .padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "Hẹn giờ tự động tạm dừng phim",
+                            color = FlixColors.TextSecondary,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val timerPresets = listOf(
+                                "Tắt" to 0,
+                                "15 phút" to 15 * 60,
+                                "30 phút" to 30 * 60,
+                                "60 phút" to 60 * 60,
+                                "Hết tập này" to -1
+                            )
+                            timerPresets.forEach { (label, secValue) ->
+                                val isSelected = when (secValue) {
+                                    0 -> sleepTimerRemainingSec == 0 && !sleepStopAtEpisodeEnd
+                                    -1 -> sleepStopAtEpisodeEnd
+                                    else -> sleepTimerRemainingSec in (secValue - 60)..secValue
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) FlixColors.Red else FlixColors.BgElevated)
+                                        .clickable {
+                                            when (secValue) {
+                                                0 -> {
+                                                    sleepTimerRemainingSec = 0
+                                                    sleepStopAtEpisodeEnd = false
+                                                    onShowToast("Đã tắt hẹn giờ ngủ")
+                                                }
+                                                -1 -> {
+                                                    sleepTimerRemainingSec = 0
+                                                    sleepStopAtEpisodeEnd = true
+                                                    onShowToast("Hẹn giờ: Tự dừng khi hết tập hiện tại")
+                                                }
+                                                else -> {
+                                                    sleepStopAtEpisodeEnd = false
+                                                    sleepTimerRemainingSec = secValue
+                                                    onShowToast("Đã hẹn giờ tắt sau $label")
+                                                }
+                                            }
+                                            showSleepTimerMenu = false
+                                            lastInteractionTick++
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1045,6 +1639,99 @@ fun PlayerScreen(
                                     )
                                 }
 
+                                if (episodes.size > 1 || servers.size > 1) {
+                                    PlayerActionButton(
+                                        icon = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                        label = "Tập (${currentEpIdx + 1}/${episodes.size.coerceAtLeast(1)})",
+                                        isActive = isEpisodeDrawerOpen,
+                                        onClick = {
+                                            isEpisodeDrawerOpen = !isEpisodeDrawerOpen
+                                            showSpeedPicker = false
+                                            showSleepTimerMenu = false
+                                            lastInteractionTick++
+                                        }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Secondary Controls (Speed, Lock, Aspect, Sleep Timer, PiP, Subtitles, Background, Share, Fullscreen)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PlayerActionButton(
+                                    icon = Icons.Default.Speed,
+                                    label = "${normalPlaybackSpeed}x",
+                                    isActive = kotlin.math.abs(normalPlaybackSpeed - 1.0f) > 0.01f || showSpeedPicker,
+                                    onClick = {
+                                        showSpeedPicker = !showSpeedPicker
+                                        showSleepTimerMenu = false
+                                        isEpisodeDrawerOpen = false
+                                        lastInteractionTick++
+                                    }
+                                )
+                                PlayerActionButton(
+                                    icon = Icons.Default.Lock,
+                                    label = "Khóa",
+                                    onClick = {
+                                        isScreenLocked = true
+                                        showSpeedPicker = false
+                                        showSleepTimerMenu = false
+                                        isEpisodeDrawerOpen = false
+                                        onShowToast("Đã khóa màn hình cảm ứng")
+                                    }
+                                )
+                                PlayerActionButton(
+                                    icon = Icons.Default.AspectRatio,
+                                    label = when (resizeMode) {
+                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
+                                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
+                                        else -> "Fit"
+                                    },
+                                    isActive = resizeMode != AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                                    onClick = {
+                                        cycleAspectRatio()
+                                        lastInteractionTick++
+                                    }
+                                )
+                                PlayerActionButton(
+                                    icon = Icons.Default.Bedtime,
+                                    label = if (sleepStopAtEpisodeEnd) "Hết tập" else if (sleepTimerRemainingSec > 0) "${(sleepTimerRemainingSec / 60).coerceAtLeast(1)}p" else "Hẹn giờ",
+                                    isActive = sleepTimerRemainingSec > 0 || sleepStopAtEpisodeEnd || showSleepTimerMenu,
+                                    onClick = {
+                                        showSleepTimerMenu = !showSleepTimerMenu
+                                        showSpeedPicker = false
+                                        isEpisodeDrawerOpen = false
+                                        lastInteractionTick++
+                                    }
+                                )
+                                PlayerActionButton(
+                                    icon = Icons.Default.ClosedCaption,
+                                    label = if (subtitlesEnabled) "Subs ON" else "Subs OFF",
+                                    isActive = subtitlesEnabled && subtitleCues.isNotEmpty(),
+                                    onClick = {
+                                        subtitlesEnabled = !subtitlesEnabled
+                                        onShowToast(if (subtitlesEnabled) "Đã bật phụ đề" else "Đã tắt phụ đề")
+                                        lastInteractionTick++
+                                    }
+                                )
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    PlayerActionButton(
+                                        icon = Icons.Default.PictureInPictureAlt,
+                                        label = "PiP",
+                                        onClick = { enterPipMode() }
+                                    )
+                                }
+                                PlayerActionButton(
+                                    icon = Icons.Default.Headphones,
+                                    label = "Phát nền",
+                                    onClick = {
+                                        onShowToast("Đang phát trong nền — điều khiển từ thanh thông báo / màn hình khóa")
+                                        activity?.moveTaskToBack(true)
+                                    }
+                                )
                                 PlayerActionButton(
                                     icon = Icons.Default.Share,
                                     label = "Chia sẻ",
@@ -1057,43 +1744,6 @@ fun PlayerScreen(
                                         lastInteractionTick++
                                     }
                                 )
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            // Secondary Controls (Volume, Subtitles, Fullscreen)
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                PlayerActionButton(
-                                    icon = Icons.AutoMirrored.Filled.VolumeOff,
-                                    label = "Vol -",
-                                    onClick = { adjustVolume(-0.1f) }
-                                )
-                                PlayerActionButton(
-                                    icon = Icons.AutoMirrored.Filled.VolumeUp,
-                                    label = "Vol +",
-                                    onClick = { adjustVolume(0.1f) }
-                                )
-                                PlayerActionButton(
-                                    icon = Icons.Default.ClosedCaption,
-                                    label = if (subtitlesEnabled) "Subs ON" else "Subs OFF",
-                                    isActive = subtitlesEnabled && subtitleCues.isNotEmpty(),
-                                    onClick = {
-                                        subtitlesEnabled = !subtitlesEnabled
-                                        onShowToast(if (subtitlesEnabled) "Đã bật phụ đề" else "Đã tắt phụ đề")
-                                        lastInteractionTick++
-                                    }
-                                )
-                                PlayerActionButton(
-                                    icon = Icons.Default.Headphones,
-                                    label = "Phát nền",
-                                    onClick = {
-                                        onShowToast("Đang phát trong nền — điều khiển từ thanh thông báo / màn hình khóa")
-                                        activity?.moveTaskToBack(true)
-                                    }
-                                )
                                 PlayerActionButton(
                                     icon = if (isFullscreenLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                                     label = if (isFullscreenLandscape) "Exit Full" else "Full screen",
@@ -1102,6 +1752,187 @@ fun PlayerScreen(
                                         lastInteractionTick++
                                     }
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // In-Player Episode & Multi-Server Drawer Modal
+        AnimatedVisibility(
+            visible = isEpisodeDrawerOpen && !isScreenLocked && !isInPipMode,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xB3000000))
+                    .clickable { isEpisodeDrawerOpen = false },
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(min = 320.dp, max = 440.dp)
+                        .fillMaxHeight()
+                        .background(Color(0xFA12141D))
+                        .border(1.dp, FlixColors.Border)
+                        .clickable(enabled = false) {}
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(18.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Chọn Server & Tập phim",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(FlixColors.BgElevated)
+                                .clickable { isEpisodeDrawerOpen = false },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Đóng",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Server Switcher inside Player
+                    if (servers.size > 1) {
+                        Text(
+                            text = "Nguồn phát (Server):",
+                            color = FlixColors.TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            servers.forEach { srv ->
+                                val isCurrentSrv = srv.serverName == currentMovie.serverName
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isCurrentSrv) FlixColors.Red else FlixColors.BgElevated)
+                                        .clickable { switchToServer(srv) }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        text = srv.serverName,
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                    }
+
+                    // Range Chunk Tabs for Long Series (> 40 episodes)
+                    val chunkSize = 40
+                    val totalChunks = ((episodes.size + chunkSize - 1) / chunkSize).coerceAtLeast(1)
+                    if (totalChunks > 1) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            for (chunkIdx in 0 until totalChunks) {
+                                val startNum = chunkIdx * chunkSize + 1
+                                val endNum = ((chunkIdx + 1) * chunkSize).coerceAtMost(episodes.size)
+                                val selected = drawerEpisodeRangeIdx.coerceIn(0, totalChunks - 1) == chunkIdx
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (selected) Color(0xFF2B3040) else FlixColors.BgElevated)
+                                        .border(
+                                            1.dp,
+                                            if (selected) FlixColors.RedBright else Color.Transparent,
+                                            RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { drawerEpisodeRangeIdx = chunkIdx }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = "Tập $startNum-$endNum",
+                                        color = Color.White,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    val activeChunk = drawerEpisodeRangeIdx.coerceIn(0, totalChunks - 1)
+                    val startEpIndex = if (totalChunks > 1) activeChunk * chunkSize else 0
+                    val endEpIndex = if (totalChunks > 1) ((activeChunk + 1) * chunkSize).coerceAtMost(episodes.size) else episodes.size
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            for (epIdx in startEpIndex until endEpIndex) {
+                                val ep = episodes[epIdx]
+                                val isPlayingEp = epIdx == currentEpIdx
+                                val resume = onGetEpisodeResume(currentMovie.effectiveKey, epIdx)
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            when {
+                                                isPlayingEp -> FlixColors.Red
+                                                resume != null -> Color(0xFF272B3A)
+                                                else -> FlixColors.BgElevated
+                                            }
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (isPlayingEp) Color.White else FlixColors.Border,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { switchToEpisode(epIdx) }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = if (resume != null && !isPlayingEp) {
+                                            "${ep.name} · ${FormatTime.formatTime(resume.currentTime.toDouble())}"
+                                        } else {
+                                            ep.name
+                                        },
+                                        color = Color.White,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = if (isPlayingEp) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }

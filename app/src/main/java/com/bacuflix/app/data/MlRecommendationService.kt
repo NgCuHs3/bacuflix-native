@@ -403,6 +403,43 @@ class MlRecommendationService(
                 matchPercent = matchPercent
             )
         }
+
+        fun computeMovieSimilarity(target: Movie, candidate: Movie): MovieScoreResult {
+            val fA = extractMovieFeatures(target)
+            val fB = extractMovieFeatures(candidate)
+            if (fA.isEmpty() || fB.isEmpty()) {
+                return MovieScoreResult(0.1, 0.0, 80)
+            }
+            var dot = 0.0
+            var normASq = 0.0
+            var normBSq = 0.0
+            var sharedGenreBonus = 0.0
+            for ((k, vA) in fA) {
+                normASq += vA * vA
+                val vB = fB[k]
+                if (vB != null) {
+                    dot += vA * vB
+                    if (k.startsWith("genre:")) {
+                        sharedGenreBonus += 0.10
+                    } else if (k.startsWith("country:") || k.startsWith("actor:")) {
+                        sharedGenreBonus += 0.06
+                    }
+                }
+            }
+            for (vB in fB.values) {
+                normBSq += vB * vB
+            }
+            val denom = sqrt(normASq) * sqrt(normBSq)
+            val cosine = if (denom > 0.0) (dot / denom) else 0.0
+            val rawScore = max(0.05, cosine * 0.80 + min(0.25, sharedGenreBonus))
+            val calibrated = 1.0 / (1.0 + exp(-4.5 * (rawScore - 0.18)))
+            val matchPct = max(80, min(99, (79.0 + calibrated * 20.0).roundToInt()))
+            return MovieScoreResult(
+                score = rawScore,
+                cosineSimilarity = cosine,
+                matchPercent = matchPct
+            )
+        }
     }
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -694,6 +731,105 @@ class MlRecommendationService(
             )
         }.sortedByDescending { it.mlScore ?: 0.0 }
             .take(limit)
+    }
+
+    suspend fun getSimilarMovies(
+        targetMovie: Movie,
+        localPool: List<Movie> = emptyList(),
+        limit: Int = 12
+    ): List<Movie> = withContext(Dispatchers.IO) {
+        val targetKey = targetMovie.effectiveKey
+        val latentGenres = inferLatentGenres(targetMovie)
+        val primaryGenreSlug = latentGenres.maxByOrNull { it.weight }?.slug ?: "hanh-dong"
+        val titleTokens = tokenizeMovieText(targetMovie.seriesTitle.ifBlank { targetMovie.title })
+        val keywordSeed = titleTokens.bigrams.firstOrNull()
+            ?: targetMovie.categories.firstOrNull()
+            ?: titleTokens.unigrams.firstOrNull()
+            ?: ""
+
+        val (genreCandidates, searchCandidates) = coroutineScope {
+            val gTask = async {
+                try {
+                    kkphimApi.getMoviesByGenre(primaryGenreSlug, page = 1, limit = 16).movies
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
+            val sTask = async {
+                if (keywordSeed.length >= 2) {
+                    try {
+                        kkphimApi.searchMovies(keywordSeed, limit = 10, page = 1).movies
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                } else emptyList()
+            }
+            gTask.await() to sTask.await()
+        }
+
+        val combined = LinkedHashMap<String, Movie>()
+        for (m in (searchCandidates + genreCandidates + localPool)) {
+            val k = m.effectiveKey
+            if (k.isNotBlank() && k != targetKey && !combined.containsKey(k)) {
+                combined[k] = m
+            }
+        }
+
+        combined.values.map { cand ->
+            val sim = computeMovieSimilarity(targetMovie, cand)
+            cand.copy(
+                mlScore = sim.score,
+                mlMatchPercent = sim.matchPercent
+            )
+        }.sortedByDescending { it.mlScore ?: 0.0 }
+            .take(limit)
+    }
+
+    fun exportInteractionsJson(): JSONArray {
+        val arr = JSONArray()
+        for (item in getInteractionsList()) {
+            arr.put(
+                JSONObject().apply {
+                    put("type", item.type)
+                    put("slug", item.slug)
+                    put("title", item.title)
+                    put("originTitle", item.originTitle)
+                    put("query", item.query)
+                    put("movieType", item.movieType)
+                    put("year", item.year)
+                    put("lang", item.lang)
+                    put("timestamp", item.timestamp)
+                }
+            )
+        }
+        return arr
+    }
+
+    fun importInteractionsJson(arr: JSONArray?) {
+        if (arr == null) return
+        val imported = mutableListOf<UserInteraction>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            imported.add(
+                UserInteraction(
+                    type = obj.optString("type", "view"),
+                    slug = obj.optString("slug"),
+                    title = obj.optString("title"),
+                    originTitle = obj.optString("originTitle"),
+                    query = obj.optString("query"),
+                    movieType = obj.optString("movieType"),
+                    year = obj.optString("year"),
+                    lang = obj.optString("lang"),
+                    timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                )
+            )
+        }
+        if (imported.isNotEmpty()) {
+            val merged = (imported + getInteractionsList())
+                .distinctBy { "${it.type}:${it.slug}:${it.query}" }
+                .take(50)
+            saveInteractionsList(merged)
+        }
     }
 
     private fun computeTimeDecay(timestampMs: Long): Double {

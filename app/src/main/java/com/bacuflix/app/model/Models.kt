@@ -34,6 +34,7 @@ data class Movie(
     val serverName: String = "Vietsub",
     val resumeTime: Int = 0,
     val episodesList: List<EpisodeItem> = emptyList(),
+    val serversList: List<EpisodeServer> = emptyList(),
     val currentTime: Int = 0,
     val duration: Int = 0,
     val progressPercent: Int = 0,
@@ -188,3 +189,45 @@ data class UserInteraction(
     val lang: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )
+
+data class CountryOption(
+    val slug: String,
+    val name: String
+)
+
+object CountryOptions {
+    val ALL = listOf(
+        CountryOption(slug = "", name = "Tất cả quốc gia"),
+        CountryOption(slug = "trung-quoc", name = "Trung Quốc"),
+        CountryOption(slug = "han-quoc", name = "Hàn Quốc"),
+        CountryOption(slug = "au-my", name = "Âu Mỹ"),
+        CountryOption(slug = "nhat-ban", name = "Nhật Bản"),
+        CountryOption(slug = "viet-nam", name = "Việt Nam"),
+        CountryOption(slug = "thai-lan", name = "Thái Lan"),
+        CountryOption(slug = "dai-loan", name = "Đài Loan"),
+        CountryOption(slug = "hong-kong", name = "Hồng Kông")
+    )
+}
+
+enum class FilterSortOrder(val id: String, val label: String) {
+    DEFAULT("default", "Mới cập nhật"),
+    YEAR_DESC("year_desc", "Năm mới nhất"),
+    ML_MATCH("ml_match", "% Phù hợp cao"),
+    TITLE_ASC("title_asc", "Tên A → Z")
+}
+
+data class CatalogFilterState(
+    val genreSlug: String = "",
+    val countrySlug: String = "",
+    val year: String = "",
+    val langFilter: String = "", // "" | "vietsub" | "thuyet-minh"
+    val sortOrder: FilterSortOrder = FilterSortOrder.DEFAULT
+) {
+    val isActive: Boolean
+        get() = genreSlug.isNotBlank() ||
+            countrySlug.isNotBlank() ||
+            year.isNotBlank() ||
+            langFilter.isNotBlank() ||
+            sortOrder != FilterSortOrder.DEFAULT
+}
+

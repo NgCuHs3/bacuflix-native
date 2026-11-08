@@ -3,6 +3,7 @@ package com.bacuflix.app.ui.detail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,12 +23,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,29 +53,40 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.bacuflix.app.model.EpisodeItem
 import com.bacuflix.app.model.EpisodeResumeInfo
+import com.bacuflix.app.model.EpisodeServer
 import com.bacuflix.app.model.Movie
 import com.bacuflix.app.model.MovieDetailResponse
 import com.bacuflix.app.ui.components.AsyncImagePoster
+import com.bacuflix.app.ui.components.CatalogMovieCard
 import com.bacuflix.app.ui.theme.FlixColors
 import com.bacuflix.app.util.FormatTime
 import com.bacuflix.app.util.UrlUtils
 
 /**
- * Movie Detail Modal ported from js/home/movie-detail-modal.js.
+ * Movie Detail Modal ported from js/home/movie-detail-modal.js, enhanced with:
+ * - Multi-Source Server Selector (KKPhim, OPhim, Nguonc)
+ * - Episode Range Chunk Tabs & Quick Episode Search for long series
+ * - Clickable Actor / Category / Country tags to search related movies
+ * - ML Similar Movies ("Phim tương tự cùng thể loại") carousel
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MovieDetailModal(
     moviePreview: Movie,
     detailResponse: MovieDetailResponse?,
+    similarMovies: List<Movie> = emptyList(),
+    favoriteKeys: Set<String> = emptySet(),
     isLoading: Boolean,
     errorMessage: String?,
     isFavorite: Boolean,
@@ -78,10 +94,14 @@ fun MovieDetailModal(
     onRetry: () -> Unit,
     onClose: () -> Unit,
     onToggleFavorite: (Movie) -> Unit,
-    onSelectEpisode: (Movie) -> Unit
+    onSelectEpisode: (Movie) -> Unit,
+    onSelectSimilarMovie: (Movie) -> Unit = {},
+    onSearchByTag: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var activeServerIndex by remember(detailResponse) { mutableIntStateOf(0) }
+    var episodeChunkIndex by remember(detailResponse, activeServerIndex) { mutableIntStateOf(0) }
+    var episodeFilterQuery by remember(detailResponse, activeServerIndex) { mutableStateOf("") }
 
     Dialog(
         onDismissRequest = onClose,
@@ -233,25 +253,81 @@ fun MovieDetailModal(
                                         if (movie.episodeCurrent.isNotBlank()) {
                                             DetailBadge(text = movie.episodeCurrent, bg = Color(0xFF1E293B))
                                         }
+                                        if (servers.size > 1) {
+                                            DetailBadge(text = "${servers.size} Server", bg = Color(0xFF065F46))
+                                        }
                                     }
 
+                                    // Clickable Categories
                                     if (movie.categories.isNotEmpty()) {
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "Thể loại: " + movie.categories.joinToString(", "),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = FlixColors.TextSecondary,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Thể loại:",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = FlixColors.TextSecondary,
+                                                modifier = Modifier.align(Alignment.CenterVertically)
+                                            )
+                                            movie.categories.forEach { cat ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF1F2330))
+                                                        .border(1.dp, FlixColors.Border, RoundedCornerShape(6.dp))
+                                                        .clickable {
+                                                            onClose()
+                                                            onSearchByTag(cat)
+                                                        }
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = cat,
+                                                        color = Color(0xFFE4E4E7),
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
+
+                                    // Clickable Countries
                                     if (movie.countries.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "Quốc gia: " + movie.countries.joinToString(", "),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = FlixColors.TextSecondary
-                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Quốc gia:",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = FlixColors.TextSecondary,
+                                                modifier = Modifier.align(Alignment.CenterVertically)
+                                            )
+                                            movie.countries.forEach { country ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(Color(0xFF1F2330))
+                                                        .border(1.dp, FlixColors.Border, RoundedCornerShape(6.dp))
+                                                        .clickable {
+                                                            onClose()
+                                                            onSearchByTag(country)
+                                                        }
+                                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = country,
+                                                        color = Color(0xFFE4E4E7),
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -269,13 +345,48 @@ fun MovieDetailModal(
                                 color = Color(0xFFD4D4D8)
                             )
 
+                            // Clickable Actor Chips
                             if (movie.actors.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Diễn viên: " + movie.actors.take(8).joinToString(", "),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = FlixColors.TextSecondary
-                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "Diễn viên:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = FlixColors.TextSecondary,
+                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                    )
+                                    movie.actors.take(8).forEach { actor ->
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(Color(0xFF1C202B))
+                                                .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
+                                                .clickable {
+                                                    onClose()
+                                                    onSearchByTag(actor)
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Person,
+                                                contentDescription = null,
+                                                tint = FlixColors.RedBright,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = actor,
+                                                color = Color(0xFFE4E4E7),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
@@ -293,6 +404,7 @@ fun MovieDetailModal(
                                                 movie = movie,
                                                 serverName = currentServer?.serverName ?: "Vietsub",
                                                 episodes = episodes,
+                                                servers = servers,
                                                 epIndex = overallResume.episodeIndex,
                                                 resumeSeconds = overallResume.currentTime
                                             )
@@ -318,6 +430,7 @@ fun MovieDetailModal(
                                                 movie = movie,
                                                 serverName = currentServer?.serverName ?: "Vietsub",
                                                 episodes = episodes,
+                                                servers = servers,
                                                 epIndex = 0,
                                                 resumeSeconds = 0
                                             )
@@ -382,15 +495,77 @@ fun MovieDetailModal(
 
                             Spacer(modifier = Modifier.height(20.dp))
 
-                            Text(
-                                text = "Chọn tập phim:",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White
-                            )
+                            // Section Header + Quick Episode Search Input (when >= 12 episodes)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Chọn tập phim (${episodes.size} tập):",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color.White
+                                )
+
+                                if (episodes.size >= 12) {
+                                    Row(
+                                        modifier = Modifier
+                                            .width(175.dp)
+                                            .height(32.dp)
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(FlixColors.BgElevated)
+                                            .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
+                                            .padding(horizontal = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            tint = FlixColors.TextSecondary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Box(
+                                            modifier = Modifier.weight(1f),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (episodeFilterQuery.isEmpty()) {
+                                                Text(
+                                                    text = "Tìm số tập...",
+                                                    color = FlixColors.TextMuted,
+                                                    fontSize = 11.5.sp
+                                                )
+                                            }
+                                            BasicTextField(
+                                                value = episodeFilterQuery,
+                                                onValueChange = { episodeFilterQuery = it },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    color = Color.White,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                cursorBrush = SolidColor(FlixColors.RedBright),
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                        if (episodeFilterQuery.isNotEmpty()) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Xóa",
+                                                tint = FlixColors.TextSecondary,
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable { episodeFilterQuery = "" }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            // Server Tabs
+                            // Multi-Source Server Tabs
                             if (servers.size > 1) {
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -402,6 +577,11 @@ fun MovieDetailModal(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .background(if (active) FlixColors.Red else FlixColors.BgElevated)
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (active) Color.White.copy(alpha = 0.6f) else FlixColors.Border,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
                                                 .clickable { activeServerIndex = idx }
                                                 .padding(horizontal = 12.dp, vertical = 7.dp)
                                         ) {
@@ -417,14 +597,70 @@ fun MovieDetailModal(
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
 
+                            // Episode Range Tabs (e.g. 1-50, 51-100...) when > 50 episodes and not searching
+                            val chunkSize = 50
+                            val totalChunks = ((episodes.size + chunkSize - 1) / chunkSize).coerceAtLeast(1)
+                            if (totalChunks > 1 && episodeFilterQuery.isBlank()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    for (cIdx in 0 until totalChunks) {
+                                        val startEp = cIdx * chunkSize + 1
+                                        val endEp = ((cIdx + 1) * chunkSize).coerceAtMost(episodes.size)
+                                        val selected = episodeChunkIndex.coerceIn(0, totalChunks - 1) == cIdx
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (selected) Color(0xFF282D3E) else FlixColors.BgElevated)
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (selected) FlixColors.RedBright else FlixColors.Border,
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                                .clickable { episodeChunkIndex = cIdx }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "Tập $startEp – $endEp",
+                                                color = Color.White,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                            }
+
                             // Episodes Grid
                             if (episodes.isNotEmpty()) {
+                                val displayedIndexedEpisodes = remember(episodes, episodeChunkIndex, episodeFilterQuery) {
+                                    val q = episodeFilterQuery.trim().lowercase()
+                                    if (q.isNotEmpty()) {
+                                        episodes.mapIndexedNotNull { idx, ep ->
+                                            if (ep.name.lowercase().contains(q) || (idx + 1).toString() == q) {
+                                                idx to ep
+                                            } else null
+                                        }
+                                    } else if (totalChunks > 1) {
+                                        val safeChunk = episodeChunkIndex.coerceIn(0, totalChunks - 1)
+                                        val from = safeChunk * chunkSize
+                                        val to = ((safeChunk + 1) * chunkSize).coerceAtMost(episodes.size)
+                                        (from until to).map { idx -> idx to episodes[idx] }
+                                    } else {
+                                        episodes.mapIndexed { idx, ep -> idx to ep }
+                                    }
+                                }
+
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    episodes.forEachIndexed { epIdx, ep ->
+                                    displayedIndexedEpisodes.forEach { (epIdx, ep) ->
                                         val epResume = resumeInfoProvider(movie.effectiveKey, epIdx)
                                         val isCurrentEp = overallResume?.episodeIndex == epIdx
                                         val bgColor = when {
@@ -447,6 +683,7 @@ fun MovieDetailModal(
                                                         movie = movie,
                                                         serverName = currentServer?.serverName ?: "Vietsub",
                                                         episodes = episodes,
+                                                        servers = servers,
                                                         epIndex = epIdx,
                                                         resumeSeconds = epResume?.currentTime ?: 0
                                                     )
@@ -475,6 +712,33 @@ fun MovieDetailModal(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = FlixColors.TextSecondary
                                 )
+                            }
+
+                            // Similar Movies Section ("Phim tương tự cùng thể loại")
+                            if (similarMovies.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(26.dp))
+                                Text(
+                                    text = "Phim tương tự cùng thể loại",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    similarMovies.forEach { simMovie ->
+                                        CatalogMovieCard(
+                                            movie = simMovie,
+                                            isFavorite = favoriteKeys.contains(simMovie.effectiveKey),
+                                            onClick = { onSelectSimilarMovie(simMovie) },
+                                            onToggleFavorite = { onToggleFavorite(simMovie) },
+                                            modifier = Modifier.width(135.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(24.dp))
@@ -524,9 +788,10 @@ private fun DetailBadge(text: String, bg: Color) {
 fun buildPlaybackMovie(
     movie: Movie,
     serverName: String,
-    episodes: List<com.bacuflix.app.model.EpisodeItem>,
+    episodes: List<EpisodeItem>,
     epIndex: Int,
-    resumeSeconds: Int
+    resumeSeconds: Int,
+    servers: List<EpisodeServer> = movie.serversList
 ): Movie? {
     val epObj = episodes.getOrNull(epIndex) ?: return null
     val streamUrl = epObj.m3u8.ifBlank { epObj.fallbackEmbed }
@@ -546,6 +811,7 @@ fun buildPlaybackMovie(
         playbackEnabled = true,
         source = "KKPhim · $serverName",
         episodesList = episodes,
+        serversList = servers,
         currentEpisodeIndex = epIndex,
         resumeTime = resumeSeconds,
         serverName = serverName

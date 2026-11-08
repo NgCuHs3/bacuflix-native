@@ -90,11 +90,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bacuflix.app.model.HomeTab
 import com.bacuflix.app.ui.components.AsyncImagePoster
+import com.bacuflix.app.ui.components.CatalogFilterBar
 import com.bacuflix.app.ui.components.CatalogMovieCard
 import com.bacuflix.app.ui.components.ContinueWatchingSection
 import com.bacuflix.app.ui.components.GenreBrowsingSection
 import com.bacuflix.app.ui.components.HeroCarousel
 import com.bacuflix.app.ui.components.MovieCarouselSection
+import com.bacuflix.app.ui.components.SettingsBackupModal
 import com.bacuflix.app.ui.components.TvSearchKeyboardPanel
 import com.bacuflix.app.ui.detail.MovieDetailModal
 import com.bacuflix.app.ui.theme.FlixColors
@@ -119,6 +121,9 @@ fun HomeScreen(
     // Double-Back & Tab Back Handler (matching js/navigation/double-back.js and js/app.js)
     BackHandler {
         when {
+            state.isSettingsModalOpen -> {
+                viewModel.setSettingsModalOpen(false)
+            }
             state.detailModalMovie != null -> {
                 viewModel.closeMovieDetail()
             }
@@ -201,6 +206,9 @@ fun HomeScreen(
                     },
                     onProfileClick = {
                         viewModel.switchTab(HomeTab.FAVORITES)
+                    },
+                    onSettingsClick = {
+                        viewModel.setSettingsModalOpen(true)
                     }
                 )
             },
@@ -233,7 +241,7 @@ fun HomeScreen(
                             viewModel.setTvKeyboardOpen(true)
                         },
                         onOpenSettings = {
-                            viewModel.showToast("BACUFlix v3.0 Native · Chất lượng phát tự động FHD / 4K")
+                            viewModel.setSettingsModalOpen(true)
                         }
                     )
                 }
@@ -408,6 +416,15 @@ fun HomeScreen(
                                     }
                                 }
 
+                                // Multi-Filter & Sort Bar
+                                CatalogFilterBar(
+                                    filterState = state.filterState,
+                                    isExpanded = state.isFilterExpanded,
+                                    onToggleExpanded = { viewModel.toggleFilterExpanded() },
+                                    onUpdateFilter = { viewModel.updateCatalogFilter(it) },
+                                    onResetFilter = { viewModel.resetCatalogFilter() }
+                                )
+
                                 if (state.activeTab == HomeTab.SEARCH && state.searchSuggestions.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(10.dp))
                                     Row(
@@ -542,6 +559,8 @@ fun HomeScreen(
             MovieDetailModal(
                 moviePreview = modalMovie,
                 detailResponse = state.detailResponse,
+                similarMovies = state.detailSimilarMovies,
+                favoriteKeys = favoriteKeys,
                 isLoading = state.isDetailLoading,
                 errorMessage = state.detailError,
                 isFavorite = favoriteKeys.contains(modalMovie.effectiveKey),
@@ -549,7 +568,23 @@ fun HomeScreen(
                 onRetry = { viewModel.retryLoadDetail() },
                 onClose = { viewModel.closeMovieDetail() },
                 onToggleFavorite = { viewModel.toggleFavorite(it) },
-                onSelectEpisode = { playbackMovie -> viewModel.startPlayer(playbackMovie) }
+                onSelectEpisode = { playbackMovie -> viewModel.startPlayer(playbackMovie) },
+                onSelectSimilarMovie = { simMovie -> viewModel.openMovieDetail(simMovie) },
+                onSearchByTag = { tagQuery -> viewModel.executeSearch(tagQuery) }
+            )
+        }
+
+        // Settings & Backup/Restore Modal
+        if (state.isSettingsModalOpen) {
+            SettingsBackupModal(
+                favoritesCount = favoriteKeys.size,
+                historyCount = watchHistory.size,
+                onExportJson = { viewModel.exportBackupJson() },
+                onImportJson = { rawJson -> viewModel.importBackupJson(rawJson) },
+                onClearHistory = { viewModel.clearAllHistory() },
+                onClearFavorites = { viewModel.clearAllFavorites() },
+                onShowToast = { msg -> viewModel.showToast(msg) },
+                onClose = { viewModel.setSettingsModalOpen(false) }
             )
         }
 
@@ -586,7 +621,8 @@ private fun HomeTopHeader(
     onSearchQueryChange: (String) -> Unit,
     onOpenTvKeyboard: () -> Unit,
     onNotificationClick: () -> Unit,
-    onProfileClick: () -> Unit
+    onProfileClick: () -> Unit,
+    onSettingsClick: () -> Unit = {}
 ) {
     val focusManager = LocalFocusManager.current
     var isSearchFocused by remember { mutableStateOf(false) }
@@ -866,6 +902,30 @@ private fun HomeTopHeader(
                     tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
+            }
+
+            // Settings & Backup Button (auto-hides on mobile while search bar is expanded)
+            AnimatedVisibility(
+                visible = isWideScreen || !isSearchActive,
+                enter = fadeIn(tween(150)),
+                exit = fadeOut(tween(150))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xCC181A22))
+                        .border(1.dp, FlixColors.Border, CircleShape)
+                        .clickable(onClick = onSettingsClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Cài đặt & Sao lưu",
+                        tint = Color(0xFFE4E4E7),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }

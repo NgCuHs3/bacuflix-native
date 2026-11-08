@@ -194,6 +194,13 @@ object PlayerController {
         }
     }
 
+    fun setPlaybackSpeed(context: Context, speed: Float) {
+        try {
+            val player = getOrCreatePlayer(context)
+            player.setPlaybackSpeed(speed.coerceIn(0.25f, 3.0f))
+        } catch (_: Exception) {}
+    }
+
     fun startPlayback(context: Context, movie: Movie, startPositionMs: Long = 0L) {
         val appContext = context.applicationContext
         val player = getOrCreatePlayer(appContext)
@@ -268,6 +275,7 @@ object PlayerController {
         isInBackground = false
         exoPlayer?.let { player ->
             try {
+                player.setPlaybackSpeed(1.0f)
                 player.playWhenReady = false
                 player.stop()
                 player.clearMediaItems()

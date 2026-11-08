@@ -5,13 +5,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.bacuflix.app.BacuFlixApplication
 import com.bacuflix.app.data.FavoritesRepository
+import com.bacuflix.app.data.MlRecommendationService
 import com.bacuflix.app.data.SmartSearchEngine
+import com.bacuflix.app.model.CatalogFilterState
 import com.bacuflix.app.model.EpisodeResumeInfo
+import com.bacuflix.app.model.FilterSortOrder
 import com.bacuflix.app.model.GenreCategory
 import com.bacuflix.app.model.HomeTab
 import com.bacuflix.app.model.Movie
 import com.bacuflix.app.model.MovieDetailResponse
 import com.bacuflix.app.ui.detail.buildPlaybackMovie
+import com.bacuflix.app.util.BackupRestoreManager
 import com.bacuflix.app.util.UrlUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,15 +38,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val activeTab: HomeTab = HomeTab.NEW,
         val previousTab: HomeTab = HomeTab.NEW,
         val activeGenre: GenreCategory? = null,
+        val filterState: CatalogFilterState = CatalogFilterState(),
+        val isFilterExpanded: Boolean = false,
         val searchQuery: String = "",
         val searchSuggestions: List<String> = SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS,
         val isTvKeyboardOpen: Boolean = false,
         val isSidebarCollapsed: Boolean = false,
+        val isSettingsModalOpen: Boolean = false,
         val isLoadingTab: Boolean = true,
         val isLoadingMore: Boolean = false,
         val hasMorePages: Boolean = true,
         val currentPage: Int = 1,
         val errorMessage: String? = null,
+        val rawGridMovies: List<Movie> = emptyList(),
         val gridMovies: List<Movie> = emptyList(),
         val newReleasesCarousel: List<Movie> = emptyList(),
         val trendingCarousel: List<Movie> = emptyList(),
@@ -51,6 +59,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val heroDescriptions: Map<String, String> = emptyMap(),
         val detailModalMovie: Movie? = null,
         val detailResponse: MovieDetailResponse? = null,
+        val detailSimilarMovies: List<Movie> = emptyList(),
         val isDetailLoading: Boolean = false,
         val detailError: String? = null,
         val activePlayerMovie: Movie? = null,
@@ -179,59 +188,87 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         loadTabJob?.cancel()
         loadTabJob = viewModelScope.launch {
             try {
-                val movies: List<Movie> = when (tab) {
-                    HomeTab.NEW -> {
-                        val kkphimNew = try {
-                            kkphimApi.getNewUpdated(page = 1).movies
+                val baseMovies: List<Movie> = when {
+                    _uiState.value.filterState.countrySlug.isNotBlank() &&
+                        tab != HomeTab.FAVORITES && tab != HomeTab.HISTORY && tab != HomeTab.SEARCH -> {
+                        val cSlug = _uiState.value.filterState.countrySlug
+                        val gSlug = _uiState.value.filterState.genreSlug
+                        val countryRes = try {
+                            kkphimApi.getMoviesByCountry(cSlug, page = 1, limit = 24).movies
                         } catch (_: Exception) {
                             emptyList()
                         }
-                        val catalogMovies = try {
-                            catalogRepo.load(forceRefresh = false).movies
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                        if (kkphimNew.isNotEmpty()) {
-                            _uiState.value = _uiState.value.copy(newReleasesCarousel = kkphimNew)
-                        }
-                        (kkphimNew + catalogMovies).distinctBy { it.effectiveKey }
-                    }
-                    HomeTab.MOVIES -> kkphimApi.getMoviesByCategory("phim-le", page = 1, limit = 24).movies
-                    HomeTab.TVSHOWS -> kkphimApi.getMoviesByCategory("phim-bo", page = 1, limit = 24).movies
-                    HomeTab.TRENDING -> googleTrendingService.getTrending(force = false).movies
-                    HomeTab.RECOMMENDED -> {
-                        val cached = _uiState.value.recommendedCarousel
-                        cached.ifEmpty { mlRecommendationService.getRecommendations(limit = 24) }
-                    }
-                    HomeTab.GENRE -> {
-                        val genreSlug = _uiState.value.activeGenre?.slug ?: "hanh-dong"
-                        kkphimApi.getMoviesByGenre(genreSlug, page = 1, limit = 24).movies
-                    }
-                    HomeTab.FAVORITES -> favoritesRepo.getAll()
-                    HomeTab.HISTORY -> watchHistoryRepo.getAll()
-                    HomeTab.SEARCH -> {
-                        val q = _uiState.value.searchQuery.trim()
-                        if (q.isNotEmpty()) {
-                            val res = SmartSearchEngine.search(
-                                keyword = q,
-                                page = 1,
-                                kkphimApi = kkphimApi,
-                                localPool = buildLocalSearchPool()
-                            )
-                            if (res.suggestions.isNotEmpty()) {
-                                _uiState.value = _uiState.value.copy(
-                                    searchSuggestions = (res.suggestions + SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS)
-                                        .distinctBy { it.lowercase() }
-                                        .take(10)
-                                )
+                        if (gSlug.isNotBlank()) {
+                            val genreRes = try {
+                                kkphimApi.getMoviesByGenre(gSlug, page = 1, limit = 24).movies
+                            } catch (_: Exception) {
+                                emptyList()
                             }
-                            res.movies
-                        } else emptyList()
+                            (countryRes + genreRes).distinctBy { it.effectiveKey }
+                        } else {
+                            countryRes
+                        }
+                    }
+                    _uiState.value.filterState.genreSlug.isNotBlank() &&
+                        tab != HomeTab.FAVORITES && tab != HomeTab.HISTORY && tab != HomeTab.SEARCH -> {
+                        kkphimApi.getMoviesByGenre(_uiState.value.filterState.genreSlug, page = 1, limit = 24).movies
+                    }
+                    else -> when (tab) {
+                        HomeTab.NEW -> {
+                            val kkphimNew = try {
+                                kkphimApi.getNewUpdated(page = 1).movies
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                            val catalogMovies = try {
+                                catalogRepo.load(forceRefresh = false).movies
+                            } catch (_: Exception) {
+                                emptyList()
+                            }
+                            if (kkphimNew.isNotEmpty()) {
+                                _uiState.value = _uiState.value.copy(newReleasesCarousel = kkphimNew)
+                            }
+                            (kkphimNew + catalogMovies).distinctBy { it.effectiveKey }
+                        }
+                        HomeTab.MOVIES -> kkphimApi.getMoviesByCategory("phim-le", page = 1, limit = 24).movies
+                        HomeTab.TVSHOWS -> kkphimApi.getMoviesByCategory("phim-bo", page = 1, limit = 24).movies
+                        HomeTab.TRENDING -> googleTrendingService.getTrending(force = false).movies
+                        HomeTab.RECOMMENDED -> {
+                            val cached = _uiState.value.recommendedCarousel
+                            cached.ifEmpty { mlRecommendationService.getRecommendations(limit = 24) }
+                        }
+                        HomeTab.GENRE -> {
+                            val genreSlug = _uiState.value.activeGenre?.slug ?: "hanh-dong"
+                            kkphimApi.getMoviesByGenre(genreSlug, page = 1, limit = 24).movies
+                        }
+                        HomeTab.FAVORITES -> favoritesRepo.getAll()
+                        HomeTab.HISTORY -> watchHistoryRepo.getAll()
+                        HomeTab.SEARCH -> {
+                            val q = _uiState.value.searchQuery.trim()
+                            if (q.isNotEmpty()) {
+                                val res = SmartSearchEngine.search(
+                                    keyword = q,
+                                    page = 1,
+                                    kkphimApi = kkphimApi,
+                                    localPool = buildLocalSearchPool()
+                                )
+                                if (res.suggestions.isNotEmpty()) {
+                                    _uiState.value = _uiState.value.copy(
+                                        searchSuggestions = (res.suggestions + SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS)
+                                            .distinctBy { it.lowercase() }
+                                            .take(10)
+                                    )
+                                }
+                                res.movies
+                            } else emptyList()
+                        }
                     }
                 }
 
+                val filtered = applyFilterAndSort(baseMovies, _uiState.value.filterState)
                 _uiState.value = _uiState.value.copy(
-                    gridMovies = movies,
+                    rawGridMovies = baseMovies,
+                    gridMovies = filtered,
                     isLoadingTab = false,
                     errorMessage = null
                 )
@@ -348,29 +385,39 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             try {
-                val moreMovies: List<Movie> = when (state.activeTab) {
-                    HomeTab.NEW -> kkphimApi.getNewUpdated(nextPage).movies
-                    HomeTab.MOVIES -> kkphimApi.getMoviesByCategory("phim-le", nextPage, 24).movies
-                    HomeTab.TVSHOWS -> kkphimApi.getMoviesByCategory("phim-bo", nextPage, 24).movies
-                    HomeTab.TRENDING -> kkphimApi.getTrending(nextPage).movies
-                    HomeTab.RECOMMENDED -> {
-                        val profile = mlRecommendationService.trainUserPreferenceModel()
-                        val topGenre = profile.rankedGenres.firstOrNull()?.first ?: "hanh-dong"
-                        kkphimApi.getMoviesByGenre(topGenre, nextPage, 24).movies.map { m ->
-                            val ev = com.bacuflix.app.data.MlRecommendationService.scoreMovieWithModel(m, profile)
-                            m.copy(mlScore = ev.score, mlMatchPercent = ev.matchPercent)
-                        }.sortedByDescending { it.mlScore ?: 0.0 }
+                val moreMovies: List<Movie> = when {
+                    state.filterState.countrySlug.isNotBlank() &&
+                        state.activeTab != HomeTab.SEARCH -> {
+                        kkphimApi.getMoviesByCountry(state.filterState.countrySlug, nextPage, 24).movies
                     }
-                    HomeTab.GENRE -> {
-                        val slug = state.activeGenre?.slug ?: "hanh-dong"
-                        kkphimApi.getMoviesByGenre(slug, nextPage, 24).movies
+                    state.filterState.genreSlug.isNotBlank() &&
+                        state.activeTab != HomeTab.SEARCH -> {
+                        kkphimApi.getMoviesByGenre(state.filterState.genreSlug, nextPage, 24).movies
                     }
-                    HomeTab.SEARCH -> {
-                        val cleanKw = SmartSearchEngine.cleanSearchQuery(state.searchQuery)
-                            .ifBlank { state.searchQuery }
-                        kkphimApi.searchMovies(cleanKw, 24, nextPage).movies
+                    else -> when (state.activeTab) {
+                        HomeTab.NEW -> kkphimApi.getNewUpdated(nextPage).movies
+                        HomeTab.MOVIES -> kkphimApi.getMoviesByCategory("phim-le", nextPage, 24).movies
+                        HomeTab.TVSHOWS -> kkphimApi.getMoviesByCategory("phim-bo", nextPage, 24).movies
+                        HomeTab.TRENDING -> kkphimApi.getTrending(nextPage).movies
+                        HomeTab.RECOMMENDED -> {
+                            val profile = mlRecommendationService.trainUserPreferenceModel()
+                            val topGenre = profile.rankedGenres.firstOrNull()?.first ?: "hanh-dong"
+                            kkphimApi.getMoviesByGenre(topGenre, nextPage, 24).movies.map { m ->
+                                val ev = MlRecommendationService.scoreMovieWithModel(m, profile)
+                                m.copy(mlScore = ev.score, mlMatchPercent = ev.matchPercent)
+                            }.sortedByDescending { it.mlScore ?: 0.0 }
+                        }
+                        HomeTab.GENRE -> {
+                            val slug = state.activeGenre?.slug ?: "hanh-dong"
+                            kkphimApi.getMoviesByGenre(slug, nextPage, 24).movies
+                        }
+                        HomeTab.SEARCH -> {
+                            val cleanKw = SmartSearchEngine.cleanSearchQuery(state.searchQuery)
+                                .ifBlank { state.searchQuery }
+                            kkphimApi.searchMovies(cleanKw, 24, nextPage).movies
+                        }
+                        else -> emptyList()
                     }
-                    else -> emptyList()
                 }
 
                 if (moreMovies.isEmpty()) {
@@ -379,10 +426,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         hasMorePages = false
                     )
                 } else {
-                    val existingKeys = _uiState.value.gridMovies.map { it.effectiveKey }.toSet()
+                    val existingKeys = _uiState.value.rawGridMovies.map { it.effectiveKey }.toSet()
                     val uniqueNew = moreMovies.filter { !existingKeys.contains(it.effectiveKey) }
+                    val updatedRaw = _uiState.value.rawGridMovies + uniqueNew
                     _uiState.value = _uiState.value.copy(
-                        gridMovies = _uiState.value.gridMovies + uniqueNew,
+                        rawGridMovies = updatedRaw,
+                        gridMovies = applyFilterAndSort(updatedRaw, _uiState.value.filterState),
                         currentPage = nextPage,
                         isLoadingMore = false
                     )
@@ -391,6 +440,121 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 _uiState.value = _uiState.value.copy(isLoadingMore = false)
             }
         }
+    }
+
+    fun applyFilterAndSort(movies: List<Movie>, filter: CatalogFilterState): List<Movie> {
+        var result = movies
+        if (filter.year.isNotBlank()) {
+            result = result.filter { it.year.trim() == filter.year.trim() }
+        }
+        if (filter.langFilter.isNotBlank()) {
+            result = result.filter { m ->
+                val norm = MlRecommendationService.stripVietnameseAccents(m.lang).lowercase()
+                when (filter.langFilter) {
+                    "thuyet-minh" -> norm.contains("thuyet minh") || norm.contains("long tieng")
+                    "vietsub" -> norm.contains("vietsub") || norm.isBlank()
+                    else -> true
+                }
+            }
+        }
+        result = when (filter.sortOrder) {
+            FilterSortOrder.DEFAULT -> result
+            FilterSortOrder.YEAR_DESC -> result.sortedByDescending { it.year.toIntOrNull() ?: 0 }
+            FilterSortOrder.ML_MATCH -> {
+                val profile = mlRecommendationService.trainUserPreferenceModel()
+                result.map { m ->
+                    if (m.mlScore != null && m.mlMatchPercent != null) m
+                    else {
+                        val ev = MlRecommendationService.scoreMovieWithModel(m, profile)
+                        m.copy(mlScore = ev.score, mlMatchPercent = ev.matchPercent)
+                    }
+                }.sortedByDescending { it.mlScore ?: 0.0 }
+            }
+            FilterSortOrder.TITLE_ASC -> result.sortedBy { it.title.lowercase() }
+        }
+        return result
+    }
+
+    fun toggleFilterExpanded() {
+        _uiState.value = _uiState.value.copy(isFilterExpanded = !_uiState.value.isFilterExpanded)
+    }
+
+    fun updateCatalogFilter(newFilter: CatalogFilterState) {
+        val prevFilter = _uiState.value.filterState
+        _uiState.value = _uiState.value.copy(filterState = newFilter)
+        val needsApiReload = prevFilter.countrySlug != newFilter.countrySlug ||
+            prevFilter.genreSlug != newFilter.genreSlug
+        if (needsApiReload) {
+            switchTab(_uiState.value.activeTab)
+        } else {
+            val base = _uiState.value.rawGridMovies.ifEmpty { _uiState.value.gridMovies }
+            _uiState.value = _uiState.value.copy(
+                gridMovies = applyFilterAndSort(base, newFilter)
+            )
+        }
+    }
+
+    fun resetCatalogFilter() {
+        val hadApiFilter = _uiState.value.filterState.countrySlug.isNotBlank() ||
+            _uiState.value.filterState.genreSlug.isNotBlank()
+        val empty = CatalogFilterState()
+        _uiState.value = _uiState.value.copy(filterState = empty)
+        if (hadApiFilter) {
+            switchTab(_uiState.value.activeTab)
+        } else {
+            val base = _uiState.value.rawGridMovies.ifEmpty { _uiState.value.gridMovies }
+            _uiState.value = _uiState.value.copy(gridMovies = base)
+        }
+    }
+
+    fun setSettingsModalOpen(open: Boolean) {
+        _uiState.value = _uiState.value.copy(isSettingsModalOpen = open)
+    }
+
+    fun exportBackupJson(): String {
+        return BackupRestoreManager.exportAll(
+            favoritesRepo = favoritesRepo,
+            watchHistoryRepo = watchHistoryRepo,
+            mlService = mlRecommendationService
+        )
+    }
+
+    fun importBackupJson(rawJson: String) {
+        try {
+            val summary = BackupRestoreManager.importAll(
+                rawJson = rawJson,
+                favoritesRepo = favoritesRepo,
+                watchHistoryRepo = watchHistoryRepo,
+                mlService = mlRecommendationService
+            )
+            if (_uiState.value.activeTab == HomeTab.FAVORITES) {
+                _uiState.value = _uiState.value.copy(gridMovies = favoritesRepo.getAll())
+            } else if (_uiState.value.activeTab == HomeTab.HISTORY) {
+                _uiState.value = _uiState.value.copy(gridMovies = watchHistoryRepo.getAll())
+            }
+            refreshMlRecommendations()
+            showToast("Khôi phục thành công: ${summary.favoritesRestored} Yêu thích, ${summary.historyRestored} Lịch sử xem!")
+        } catch (e: Exception) {
+            showToast(e.message ?: "Mã JSON sao lưu không hợp lệ.")
+        }
+    }
+
+    fun clearAllHistory() {
+        watchHistoryRepo.clearWatchHistory()
+        if (_uiState.value.activeTab == HomeTab.HISTORY) {
+            _uiState.value = _uiState.value.copy(gridMovies = emptyList())
+        }
+        refreshMlRecommendations()
+        showToast("Đã xóa toàn bộ lịch sử xem phim")
+    }
+
+    fun clearAllFavorites() {
+        favoritesRepo.clearFavorites()
+        if (_uiState.value.activeTab == HomeTab.FAVORITES) {
+            _uiState.value = _uiState.value.copy(gridMovies = emptyList())
+        }
+        refreshMlRecommendations()
+        showToast("Đã xóa toàn bộ danh sách yêu thích")
     }
 
     fun toggleFavorite(movie: Movie) {
@@ -425,6 +589,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             detailModalMovie = movie,
             detailResponse = null,
+            detailSimilarMovies = emptyList(),
             isDetailLoading = true,
             detailError = null
         )
@@ -459,6 +624,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     isDetailLoading = false,
                     detailError = null
                 )
+                // Load ML similar movies asynchronously
+                val similar = try {
+                    mlRecommendationService.getSimilarMovies(
+                        targetMovie = detail.movie,
+                        localPool = buildLocalSearchPool(),
+                        limit = 10
+                    )
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (_uiState.value.detailModalMovie?.effectiveKey == detail.movie.effectiveKey) {
+                    _uiState.value = _uiState.value.copy(detailSimilarMovies = similar)
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isDetailLoading = false,
@@ -473,6 +651,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             detailModalMovie = null,
             detailResponse = null,
+            detailSimilarMovies = emptyList(),
             isDetailLoading = false,
             detailError = null
         )

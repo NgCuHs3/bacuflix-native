@@ -93,6 +93,60 @@ class FavoritesRepository(context: Context) {
         }
     }
 
+    @Synchronized
+    fun clearFavorites() {
+        saveFavorites(emptyList())
+    }
+
+    fun exportToJsonArray(): JSONArray {
+        val raw = prefs.getString(STORAGE_KEY, null)
+        return try {
+            if (!raw.isNullOrBlank()) JSONArray(raw) else JSONArray()
+        } catch (_: Exception) {
+            JSONArray()
+        }
+    }
+
+    @Synchronized
+    fun importFromJsonArray(arr: JSONArray?): Int {
+        if (arr == null || arr.length() == 0) return 0
+        var importedCount = 0
+        val current = _favorites.value.toMutableList()
+        for (i in (arr.length() - 1) downTo 0) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val rawSlug = obj.optString("slug")
+            val rawId = obj.optString("id").ifBlank { rawSlug }
+            val realSlug = sanitizeApiSlug(rawSlug)
+            val key = normalizeMovieKey(realSlug, rawId)
+            if (key.isBlank()) continue
+            val title = obj.optString("title").ifBlank { obj.optString("name") }.ifBlank { "Phim" }
+            val poster = obj.optString("poster").ifBlank { obj.optString("poster_url") }.ifBlank { CatalogSources.FALLBACK_POSTER }
+            val thumb = obj.optString("thumb").ifBlank { obj.optString("thumb_url") }.ifBlank { poster }
+            val movie = Movie(
+                id = key,
+                slug = realSlug,
+                title = title,
+                seriesTitle = title,
+                originTitle = obj.optString("originTitle"),
+                poster = poster,
+                thumb = thumb,
+                year = obj.optString("year"),
+                quality = obj.optString("quality").ifBlank { "FHD" },
+                lang = obj.optString("lang").ifBlank { "Vietsub" },
+                episodeCurrent = obj.optString("episode_current").ifBlank { obj.optString("episodeCurrent") },
+                m3u8 = obj.optString("m3u8"),
+                source = obj.optString("source").ifBlank { "KKPhim" },
+                playbackEnabled = true,
+                addedAt = obj.optLong("addedAt", System.currentTimeMillis())
+            )
+            current.removeAll { it.effectiveKey == key || it.id == key }
+            current.add(0, movie)
+            importedCount++
+        }
+        saveFavorites(current.take(MAX_FAVORITES))
+        return importedCount
+    }
+
     private fun loadFromPrefs() {
         try {
             val raw = prefs.getString(STORAGE_KEY, null)

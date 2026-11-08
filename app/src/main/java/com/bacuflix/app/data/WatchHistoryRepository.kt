@@ -274,6 +274,48 @@ class WatchHistoryRepository(context: Context) {
         saveHistoryList(emptyList())
     }
 
+    fun exportToJsonArray(): JSONArray {
+        val raw = prefs.getString(HISTORY_STORAGE_KEY, null)
+        return try {
+            if (!raw.isNullOrBlank()) JSONArray(raw) else JSONArray()
+        } catch (_: Exception) {
+            JSONArray()
+        }
+    }
+
+    @Synchronized
+    fun importFromJsonArray(arr: JSONArray?): Int {
+        if (arr == null || arr.length() == 0) return 0
+        return try {
+            val existingRaw = prefs.getString(HISTORY_STORAGE_KEY, null)
+            val existingArr = if (!existingRaw.isNullOrBlank()) JSONArray(existingRaw) else JSONArray()
+            val mergedObjMap = LinkedHashMap<String, JSONObject>()
+
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val key = FavoritesRepository.normalizeMovieKey(obj.optString("slug"), obj.optString("id"))
+                if (key.isNotBlank() && !mergedObjMap.containsKey(key)) {
+                    mergedObjMap[key] = obj
+                }
+            }
+            for (i in 0 until existingArr.length()) {
+                val obj = existingArr.optJSONObject(i) ?: continue
+                val key = FavoritesRepository.normalizeMovieKey(obj.optString("slug"), obj.optString("id"))
+                if (key.isNotBlank() && !mergedObjMap.containsKey(key)) {
+                    mergedObjMap[key] = obj
+                }
+            }
+
+            val finalArr = JSONArray()
+            mergedObjMap.values.take(MAX_HISTORY_ITEMS).forEach { finalArr.put(it) }
+            prefs.edit().putString(HISTORY_STORAGE_KEY, finalArr.toString()).commit()
+            loadFromPrefs()
+            arr.length()
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     private fun loadFromPrefs() {
         try {
             val raw = prefs.getString(HISTORY_STORAGE_KEY, null)

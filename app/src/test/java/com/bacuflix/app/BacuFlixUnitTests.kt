@@ -3,14 +3,20 @@ package com.bacuflix.app
 import com.bacuflix.app.data.KkphimApiService
 import com.bacuflix.app.data.MlRecommendationService
 import com.bacuflix.app.data.MovieMarkdownParser
+import com.bacuflix.app.model.CatalogFilterState
+import com.bacuflix.app.model.FilterSortOrder
 import com.bacuflix.app.model.Movie
 import com.bacuflix.app.player.SeekController
 import com.bacuflix.app.player.SegmentInspector
 import com.bacuflix.app.player.SubtitleParser
+import com.bacuflix.app.util.BackupRestoreManager
 import com.bacuflix.app.util.FormatTime
 import com.bacuflix.app.util.UrlUtils
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.ByteBuffer
@@ -138,6 +144,86 @@ class BacuFlixUnitTests {
         )
         val latentGenres = MlRecommendationService.inferLatentGenres(actionMovie)
         assertTrue(latentGenres.any { it.slug == "hanh-dong" && it.weight > 0.5 })
+
+        val similarActionMovie = Movie(
+            id = "sat-thu-bong-dem",
+            slug = "sat-thu-bong-dem",
+            title = "Sát Thủ Bóng Đêm",
+            originTitle = "Shadow Assassin Action",
+            year = "2026",
+            categories = listOf("Hành Động", "Hình Sự")
+        )
+        val romanceMovie = Movie(
+            id = "mua-he-nam-ay",
+            slug = "mua-he-nam-ay",
+            title = "Mùa Hè Năm Ấy",
+            originTitle = "Our Beloved Summer",
+            year = "2022",
+            categories = listOf("Tình Cảm")
+        )
+        val simAction = MlRecommendationService.computeMovieSimilarity(actionMovie, similarActionMovie)
+        val simRomance = MlRecommendationService.computeMovieSimilarity(actionMovie, romanceMovie)
+        assertTrue(simAction.score > simRomance.score)
+        assertTrue(simAction.matchPercent in 80..99)
+    }
+
+    @Test
+    fun testMultiSourceServerParsingAndBackupRestore() {
+        val ophimJson = JSONArray().put(
+            JSONObject().apply {
+                put("server_name", "Vietsub #1")
+                put(
+                    "server_data",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("name", "Tập 1")
+                            put("slug", "tap-1")
+                            put("link_m3u8", "https://ophim.example.com/ep1.m3u8")
+                            put("link_embed", "https://ophim.example.com/embed1")
+                        }
+                    )
+                )
+            }
+        )
+        val ophimServers = KkphimApiService.parseStandardServers(ophimJson, "OPhim")
+        assertEquals(1, ophimServers.size)
+        assertEquals("OPhim · Vietsub #1", ophimServers[0].serverName)
+        assertEquals("https://ophim.example.com/ep1.m3u8", ophimServers[0].episodes[0].m3u8)
+
+        val nguoncJson = JSONArray().put(
+            JSONObject().apply {
+                put("server_name", "Thuyết Minh")
+                put(
+                    "items",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("name", "Full")
+                            put("slug", "full")
+                            put("m3u8", "https://nguonc.example.com/full.m3u8")
+                            put("embed", "https://nguonc.example.com/embed")
+                        }
+                    )
+                )
+            }
+        )
+        val nguoncServers = KkphimApiService.parseNguoncServers(nguoncJson, "Nguonc")
+        assertEquals(1, nguoncServers.size)
+        assertEquals("Nguonc · Thuyết Minh", nguoncServers[0].serverName)
+        assertEquals("https://nguonc.example.com/full.m3u8", nguoncServers[0].episodes[0].m3u8)
+
+        // Backup & Restore JSON round-trip
+        val favArr = JSONArray().put(JSONObject().put("slug", "lat-mat-7").put("title", "Lật Mặt 7"))
+        val histArr = JSONArray().put(JSONObject().put("slug", "mua-do").put("title", "Mưa Đỏ"))
+        val backupStr = BackupRestoreManager.createBackupJsonString(favArr, histArr)
+        val parsed = BackupRestoreManager.parseBackupJsonString(backupStr)
+        assertEquals(1, parsed.favorites.length())
+        assertEquals(1, parsed.watchHistory.length())
+        assertEquals("lat-mat-7", parsed.favorites.getJSONObject(0).getString("slug"))
+
+        val defaultFilter = CatalogFilterState()
+        assertFalse(defaultFilter.isActive)
+        val activeFilter = CatalogFilterState(countrySlug = "han-quoc", sortOrder = FilterSortOrder.YEAR_DESC)
+        assertTrue(activeFilter.isActive)
     }
 
     private fun buildPngChunk(type: String, data: ByteArray): ByteArray {
