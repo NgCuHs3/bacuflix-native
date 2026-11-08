@@ -319,26 +319,36 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        // Instant local pool & search cache response (< 5ms)
-        val localMatches = buildLocalSearchPool().filter { movie ->
-            SmartSearchEngine.scoreMovieMatch(movie, trimmed, trimmed) >= 120.0
-        }.sortedByDescending { SmartSearchEngine.scoreMovieMatch(it, trimmed, trimmed) }
-
+        // Instant synchronous search cache response (< 1ms)
         val cachedRes = kkphimApi.getCachedSearch(trimmed)
-        val combinedInstant = (cachedRes?.movies.orEmpty() + localMatches).distinctBy { it.slug }
-
-        if (combinedInstant.isNotEmpty()) {
+        if (cachedRes != null && cachedRes.movies.isNotEmpty()) {
             val prev = if (_uiState.value.activeTab != HomeTab.SEARCH) _uiState.value.activeTab else _uiState.value.previousTab
             _uiState.value = _uiState.value.copy(
                 activeTab = HomeTab.SEARCH,
                 previousTab = prev,
-                gridMovies = combinedInstant,
+                gridMovies = cachedRes.movies,
                 isLoadingTab = false,
                 errorMessage = null
             )
         }
 
         searchDebounceJob = viewModelScope.launch {
+            // Instant local pool match within coroutine before network debounce
+            val localMatches = buildLocalSearchPool().filter { movie ->
+                SmartSearchEngine.scoreMovieMatch(movie, trimmed, trimmed) >= 120.0
+            }.sortedByDescending { SmartSearchEngine.scoreMovieMatch(it, trimmed, trimmed) }
+
+            if (localMatches.isNotEmpty() && _uiState.value.gridMovies.isEmpty()) {
+                val prev = if (_uiState.value.activeTab != HomeTab.SEARCH) _uiState.value.activeTab else _uiState.value.previousTab
+                _uiState.value = _uiState.value.copy(
+                    activeTab = HomeTab.SEARCH,
+                    previousTab = prev,
+                    gridMovies = localMatches,
+                    isLoadingTab = false,
+                    errorMessage = null
+                )
+            }
+
             delay(220L)
             executeSearch(trimmed)
         }
