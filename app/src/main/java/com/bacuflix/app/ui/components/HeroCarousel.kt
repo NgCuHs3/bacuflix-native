@@ -94,9 +94,8 @@ fun HeroCarousel(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(FlixColors.BgSecondary)
-            .border(1.dp, FlixColors.Border, RoundedCornerShape(18.dp))
             .pointerInput(heroMovies.size) {
                 if (heroMovies.size > 1) {
                     detectHorizontalDragGestures(
@@ -117,7 +116,7 @@ fun HeroCarousel(
             }
     ) {
         val isCompact = maxWidth < 600.dp
-        val heroHeight = if (isCompact) 390.dp else 410.dp
+        val heroHeight = if (isCompact) 460.dp else 480.dp
 
         Box(
             modifier = Modifier
@@ -182,7 +181,7 @@ fun HeroCarousel(
                                 .height(6.dp)
                                 .width(if (selected) 18.dp else 6.dp)
                                 .clip(CircleShape)
-                                .background(if (selected) FlixColors.Red else Color(0x66FFFFFF))
+                                .background(if (selected) Color.White else Color(0x59FFFFFF))
                                 .clickable { currentIndex = idx }
                         )
                     }
@@ -224,7 +223,7 @@ fun HeroCarousel(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
-                                .background(Color(0xB314151B))
+                                .background(Color(0x8C3A3A3C))
                                 .border(1.dp, FlixColors.Border, RoundedCornerShape(4.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
@@ -331,12 +330,12 @@ fun HeroCarousel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        // Primary "Xem ngay" Pill Button
+                        // Primary "Xem ngay" Apple TV-style white pill button
                         Button(
                             onClick = { onPlayMovie(activeMovie) },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = FlixColors.Red,
-                                contentColor = Color.White
+                                containerColor = Color.White,
+                                contentColor = Color.Black
                             ),
                             shape = RoundedCornerShape(999.dp),
                             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 0.dp),
@@ -369,7 +368,7 @@ fun HeroCarousel(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xD914151B))
+                                        .background(Color(0x8C3A3A3C))
                                         .border(1.dp, FlixColors.Border, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -400,7 +399,7 @@ fun HeroCarousel(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xD914151B))
+                                        .background(Color(0x8C3A3A3C))
                                         .border(1.dp, FlixColors.Border, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -427,7 +426,7 @@ fun HeroCarousel(
                                 onClick = { onToggleFavorite(activeMovie) },
                                 shape = RoundedCornerShape(999.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = Color(0xB314151B),
+                                    containerColor = Color(0x8C3A3A3C),
                                     contentColor = Color.White
                                 ),
                                 modifier = Modifier.height(44.dp)
@@ -452,7 +451,7 @@ fun HeroCarousel(
                                 modifier = Modifier
                                     .size(44.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xB314151B))
+                                    .background(Color(0x8C3A3A3C))
                                     .border(1.dp, FlixColors.Border, CircleShape)
                             ) {
                                 Icon(
@@ -478,7 +477,7 @@ fun HeroCarousel(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xB314151B))
+                                    .background(Color(0x8C3A3A3C))
                                     .border(1.dp, FlixColors.Border, CircleShape)
                             ) {
                                 Icon(
@@ -495,7 +494,7 @@ fun HeroCarousel(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xB314151B))
+                                    .background(Color(0x8C3A3A3C))
                                     .border(1.dp, FlixColors.Border, CircleShape)
                             ) {
                                 Icon(

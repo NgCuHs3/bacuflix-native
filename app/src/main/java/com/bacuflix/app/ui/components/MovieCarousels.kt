@@ -88,7 +88,7 @@ fun MovieCarouselSection(
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
                     contentDescription = null,
-                    tint = FlixColors.RedBright,
+                    tint = FlixColors.TextMuted,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -160,7 +160,7 @@ fun ContinueWatchingSection(
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = FlixColors.RedBright,
+                tint = FlixColors.TextMuted,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -342,7 +342,7 @@ fun GenreBrowsingSection(
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = FlixColors.RedBright,
+                tint = FlixColors.TextMuted,
                 modifier = Modifier.size(22.dp)
             )
         }

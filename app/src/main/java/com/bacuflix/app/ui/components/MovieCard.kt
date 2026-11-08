@@ -33,7 +33,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -234,22 +237,42 @@ fun CarouselPosterCard(
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(14.dp)
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interaction.collectIsPressedAsState()
+    // Apple TV "lift" effect: focused poster scales up with soft shadow, pressed sinks slightly
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = when {
+            isPressed -> 0.96f
+            isFocused -> 1.08f
+            else -> 1f
+        },
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 400f),
+        label = "posterScale"
+    )
 
     Box(
         modifier = modifier
             .width(if (isTop10) 156.dp else 142.dp)
             .aspectRatio(2f / 3f)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .shadow(
+                elevation = if (isFocused) 18.dp else 4.dp,
+                shape = shape,
+                ambientColor = Color.Black,
+                spotColor = Color.Black
+            )
             .clip(shape)
             .background(FlixColors.BgCard)
-            .border(
-                width = if (isFocused) 2.5.dp else 1.dp,
-                color = if (isFocused) Color.White else FlixColors.Border,
-                shape = shape
+            .then(
+                if (isFocused) Modifier.border(2.dp, Color(0xE6FFFFFF), shape) else Modifier
             )
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
-            .clickable(onClick = onClick)
+            .focusable(interactionSource = interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
     ) {
         AsyncImagePoster(
             url = movie.poster,
