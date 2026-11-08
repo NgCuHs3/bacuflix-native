@@ -15,8 +15,6 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -134,7 +132,13 @@ import kotlin.math.roundToInt
 
 private val PLAYBACK_SPEED_OPTIONS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
-@OptIn(UnstableApi::class, ExperimentalLayoutApi::class)
+private val AppleGlassSurface = Color(0xB81C1C1E)
+private val AppleGlassActive = Color(0xD92C2C2E)
+private val AppleGlassBorder = Color(0x33FFFFFF)
+private val AppleGlassHighlightBorder = Color(0x8CFFFFFF)
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(
     initialMovie: Movie,
@@ -742,7 +746,7 @@ fun PlayerScreen(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = leftSeekCumulativeSec > 0,
                             enter = fadeIn(),
                             exit = fadeOut()
@@ -839,7 +843,7 @@ fun PlayerScreen(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = rightSeekCumulativeSec > 0,
                             enter = fadeIn(),
                             exit = fadeOut()
@@ -854,21 +858,21 @@ fun PlayerScreen(
             }
         }
 
-        // Long-Press 2.0x Speed Boost Badge Overlay
-        AnimatedVisibility(
+        // Long-Press 2.0x Speed Boost Badge Overlay (Apple TV Pill)
+        androidx.compose.animation.AnimatedVisibility(
             visible = isLongPressBoostActive && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(top = 64.dp)
+                .padding(top = 68.dp)
         ) {
             Row(
                 modifier = Modifier
-                    .background(Color(0xE6E50914), RoundedCornerShape(999.dp))
-                    .border(1.dp, Color(0x66FFFFFF), RoundedCornerShape(999.dp))
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
+                    .background(AppleGlassActive, RoundedCornerShape(999.dp))
+                    .border(1.dp, AppleGlassHighlightBorder, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -879,10 +883,10 @@ fun PlayerScreen(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = "Đang phát nhanh 2.0x",
+                    text = "Tua nhanh 2.0x",
                     color = Color.White,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -893,11 +897,11 @@ fun PlayerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(
-                        bottom = if (controlsVisible && !isScreenLocked && !isInPipMode) 150.dp else 32.dp,
+                        bottom = if (controlsVisible && !isScreenLocked && !isInPipMode) 152.dp else 32.dp,
                         start = 24.dp,
                         end = 24.dp
                     )
-                    .background(Color(0xBF000000), RoundedCornerShape(6.dp))
+                    .background(Color(0xBF000000), RoundedCornerShape(8.dp))
                     .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text(
@@ -910,21 +914,21 @@ fun PlayerScreen(
             }
         }
 
-        // Brightness HUD Overlay (Top-Left)
-        AnimatedVisibility(
+        // Brightness HUD Overlay (Top-Left Apple TV Frosted Pill)
+        androidx.compose.animation.AnimatedVisibility(
             visible = brightnessHudVisible && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(top = 72.dp, start = 24.dp)
+                .padding(top = 74.dp, start = 24.dp)
         ) {
             val pct = (screenBrightness * 100f).roundToInt().coerceIn(5, 100)
             Row(
                 modifier = Modifier
-                    .background(Color(0xD9121318), RoundedCornerShape(999.dp))
-                    .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
+                    .background(AppleGlassActive, RoundedCornerShape(999.dp))
+                    .border(1.dp, AppleGlassBorder, RoundedCornerShape(999.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -938,41 +942,41 @@ fun PlayerScreen(
                 Box(
                     modifier = Modifier
                         .width(90.dp)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(999.dp))
                         .background(Color(0x33FFFFFF))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(screenBrightness.coerceIn(0f, 1f))
-                            .background(Color(0xFFFACC15))
+                            .background(Color.White)
                     )
                 }
                 Text(
                     text = "$pct%",
                     color = Color.White,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        // Volume HUD Overlay (Top-Right)
-        AnimatedVisibility(
+        // Volume HUD Overlay (Top-Right Apple TV Frosted Pill)
+        androidx.compose.animation.AnimatedVisibility(
             visible = volumeHudVisible && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 72.dp, end = 24.dp)
+                .padding(top = 74.dp, end = 24.dp)
         ) {
             val pct = (playerVolume * 100f).roundToInt()
             Row(
                 modifier = Modifier
-                    .background(Color(0xD9121318), RoundedCornerShape(999.dp))
-                    .border(1.dp, FlixColors.Border, RoundedCornerShape(999.dp))
+                    .background(AppleGlassActive, RoundedCornerShape(999.dp))
+                    .border(1.dp, AppleGlassBorder, RoundedCornerShape(999.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -986,22 +990,22 @@ fun PlayerScreen(
                 Box(
                     modifier = Modifier
                         .width(90.dp)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(999.dp))
                         .background(Color(0x33FFFFFF))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(playerVolume.coerceIn(0f, 1f))
-                            .background(FlixColors.Red)
+                            .background(Color.White)
                     )
                 }
                 Text(
                     text = "$pct%",
                     color = Color.White,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -1018,9 +1022,9 @@ fun PlayerScreen(
                     Column(
                         modifier = Modifier
                             .widthIn(max = 420.dp)
-                            .background(Color(0xEB121318), RoundedCornerShape(14.dp))
-                            .border(1.dp, FlixColors.Border, RoundedCornerShape(14.dp))
-                            .padding(20.dp),
+                            .background(AppleGlassActive, RoundedCornerShape(18.dp))
+                            .border(1.dp, AppleGlassBorder, RoundedCornerShape(18.dp))
+                            .padding(22.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
@@ -1067,14 +1071,15 @@ fun PlayerScreen(
                 } else {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
-                            color = FlixColors.Red,
-                            modifier = Modifier.size(if (isInPipMode) 28.dp else 48.dp)
+                            color = Color.White,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(if (isInPipMode) 28.dp else 46.dp)
                         )
                         if (!isInPipMode) {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
                                 text = "Đang tải luồng phát...",
-                                color = Color.White,
+                                color = Color(0xD9FFFFFF),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -1084,20 +1089,20 @@ fun PlayerScreen(
             }
         }
 
-        // Skip Intro (+85s) Floating Button
-        AnimatedVisibility(
+        // Skip Intro (+85s) Floating Apple TV Capsule Button
+        androidx.compose.animation.AnimatedVisibility(
             visible = showSkipIntroButton && autoNextRemainingSec == 0,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = if (controlsVisible) 142.dp else 36.dp, end = 24.dp)
+                .padding(bottom = if (controlsVisible) 146.dp else 36.dp, end = 24.dp)
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xE614161F))
-                    .border(1.2.dp, FlixColors.RedBright, RoundedCornerShape(10.dp)),
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xEBFFFFFF))
+                    .border(1.dp, Color.White, RoundedCornerShape(999.dp)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
@@ -1107,19 +1112,19 @@ fun PlayerScreen(
                             skipIntroDismissed = true
                             onShowToast("Đã bỏ qua phần mở đầu (+85s)")
                         }
-                        .padding(start = 14.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                        .padding(start = 16.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.FastForward,
                         contentDescription = null,
-                        tint = FlixColors.RedBright,
+                        tint = Color.Black,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "Bỏ qua Mở đầu (+85s)",
-                        color = Color.White,
+                        text = "Bỏ qua Mở đầu",
+                        color = Color.Black,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1127,65 +1132,62 @@ fun PlayerScreen(
                 Box(
                     modifier = Modifier
                         .clickable { skipIntroDismissed = true }
-                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Đóng",
-                        tint = FlixColors.TextSecondary,
+                        tint = Color(0x99000000),
                         modifier = Modifier.size(14.dp)
                     )
                 }
             }
         }
 
-        // 5-Second Auto-Next Episode Countdown Overlay
-        AnimatedVisibility(
+        // 5-Second Auto-Next Episode Countdown Overlay (Apple TV Style)
+        androidx.compose.animation.AnimatedVisibility(
             visible = autoNextRemainingSec > 0 && hasNextEpisode && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(bottom = 140.dp, end = 24.dp)
+                .padding(bottom = 144.dp, end = 24.dp)
         ) {
             val nextEp = episodes.getOrNull(currentEpIdx + 1)
             val nextEpTitle = nextEp?.name?.ifBlank { "Tập ${currentEpIdx + 2}" } ?: "Tập tiếp theo"
             Column(
                 modifier = Modifier
                     .widthIn(min = 260.dp, max = 340.dp)
-                    .background(Color(0xF212141C), RoundedCornerShape(14.dp))
-                    .border(1.dp, Color(0x4DE50914), RoundedCornerShape(14.dp))
+                    .background(AppleGlassActive, RoundedCornerShape(18.dp))
+                    .border(1.dp, AppleGlassHighlightBorder, RoundedCornerShape(18.dp))
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "TẬP TIẾP THEO",
-                    color = FlixColors.Red,
+                    text = "TIẾP THEO · ${autoNextRemainingSec}S",
+                    color = Color(0xB3EBEBF5),
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.sp
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${currentMovie.seriesTitle.ifBlank { currentMovie.title }} - $nextEpTitle",
+                    text = "${currentMovie.seriesTitle.ifBlank { currentMovie.title }} · $nextEpTitle",
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Tự động phát sau ${autoNextRemainingSec}s",
-                    color = FlixColors.TextSecondary,
-                    fontSize = 12.sp
-                )
                 Spacer(modifier = Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Button(
                         onClick = { switchToEpisode(currentEpIdx + 1) },
-                        colors = ButtonDefaults.buttonColors(containerColor = FlixColors.Red),
-                        shape = RoundedCornerShape(8.dp)
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(999.dp)
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1196,7 +1198,7 @@ fun PlayerScreen(
                             autoNextCancelled = true
                             autoNextRemainingSec = 0
                         },
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(999.dp)
                     ) {
                         Text("Hủy", color = Color.White, fontSize = 12.sp)
                     }
@@ -1205,7 +1207,7 @@ fun PlayerScreen(
         }
 
         // Locked Screen Floating Unlock Pill
-        AnimatedVisibility(
+        androidx.compose.animation.AnimatedVisibility(
             visible = isScreenLocked && controlsVisible && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
@@ -1215,10 +1217,10 @@ fun PlayerScreen(
                 .padding(bottom = 32.dp)
         ) {
             Surface(
-                color = Color(0xE614161F),
+                color = AppleGlassActive,
                 shape = RoundedCornerShape(999.dp),
                 modifier = Modifier
-                    .border(1.5.dp, FlixColors.RedBright, RoundedCornerShape(999.dp))
+                    .border(1.2.dp, AppleGlassHighlightBorder, RoundedCornerShape(999.dp))
                     .clickable {
                         isScreenLocked = false
                         controlsVisible = true
@@ -1234,159 +1236,314 @@ fun PlayerScreen(
                     Icon(
                         imageVector = Icons.Default.LockOpen,
                         contentDescription = "Mở khóa",
-                        tint = FlixColors.RedBright,
+                        tint = Color.White,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
                         text = "Chạm để mở khóa màn hình",
                         color = Color.White,
                         fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
 
-        // Top Bar & Bottom Controls Overlay (hidden when Screen is Locked or in PiP mode)
-        AnimatedVisibility(
+        // =========================================================================
+        // APPLE TV+ STYLE PLAYER CONTROLS OVERLAY (Top Bar + Center Transport + Bottom Scrubber)
+        // =========================================================================
+        androidx.compose.animation.AnimatedVisibility(
             visible = (controlsVisible || useWebViewEmbed) && !isScreenLocked && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                // Top Bar
+                // -----------------------------------------------------------------
+                // 1. APPLE TV TOP FLOATING BAR
+                // -----------------------------------------------------------------
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color(0xE6000000), Color.Transparent)
+                                colors = listOf(Color(0xD9000000), Color.Transparent)
                             )
                         )
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 20.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Back to Movie Detail button
-                    Surface(
-                        color = Color(0x9914161D),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .border(1.dp, FlixColors.Border, RoundedCornerShape(8.dp))
-                            .clickable {
+                    // Top-Left Cluster: Close/Back, PiP, Background Audio
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppleCircleButton(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Quay lại",
+                            sizeDp = 40,
+                            iconSizeDp = 18,
+                            onClick = {
                                 saveCurrentProgress()
                                 if (isFullscreenLandscape) toggleFullscreenOrientation()
                                 PlayerController.stopAndRelease(context)
                                 onBackToDetail()
                             }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
+                        )
+                        if (!useWebViewEmbed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            AppleCircleButton(
+                                icon = Icons.Default.PictureInPictureAlt,
+                                contentDescription = "Cửa sổ nổi PiP",
+                                sizeDp = 40,
+                                iconSizeDp = 17,
+                                onClick = { enterPipMode() }
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Back",
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                        }
+                        if (!useWebViewEmbed) {
+                            AppleCircleButton(
+                                icon = Icons.Default.Headphones,
+                                contentDescription = "Phát trong nền",
+                                sizeDp = 40,
+                                iconSizeDp = 17,
+                                onClick = {
+                                    onShowToast("Đang phát trong nền — điều khiển từ màn hình khóa")
+                                    activity?.moveTaskToBack(true)
+                                }
                             )
                         }
                     }
 
-                    // BACUFlix Brand Button (returns straight to Home)
-                    Text(
-                        text = buildAnnotatedString {
-                            withStyle(SpanStyle(color = FlixColors.Red, fontWeight = FontWeight.Black)) {
-                                append("BACU")
-                            }
-                            withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) {
-                                append("Flix")
-                            }
-                        },
-                        fontSize = 19.sp,
+                    // Top-Center Metadata Header (Series + Episode Title)
+                    Column(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
+                            .weight(1f)
+                            .padding(horizontal = 14.dp)
                             .clickable {
                                 saveCurrentProgress()
                                 if (isFullscreenLandscape) toggleFullscreenOrientation()
                                 PlayerController.stopAndRelease(context)
                                 onReturnHome()
-                            }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
-                    )
-
-                    // Now Playing Pill + Movie/Episode Title + Active Sleep Timer Badge
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            },
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(FlixColors.Red)
-                        )
-                        Text(
-                            text = "NOW PLAYING",
-                            color = FlixColors.TextSecondary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = buildAnnotatedString {
+                                    withStyle(SpanStyle(color = FlixColors.RedBright, fontWeight = FontWeight.Black)) {
+                                        append("BACU")
+                                    }
+                                    withStyle(SpanStyle(color = Color(0xD9FFFFFF), fontWeight = FontWeight.Bold)) {
+                                        append("Flix")
+                                    }
+                                },
+                                fontSize = 11.sp
+                            )
+                            if (currentMovie.serverName.isNotBlank()) {
+                                Text(
+                                    text = "· ${currentMovie.serverName}",
+                                    color = Color(0xA6EBEBF5),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            if (sleepTimerRemainingSec > 0 || sleepStopAtEpisodeEnd) {
+                                Text(
+                                    text = if (sleepStopAtEpisodeEnd) "· 🌙 Hết tập" else "· 🌙 ${FormatTime.formatTime(sleepTimerRemainingSec.toDouble())}",
+                                    color = Color(0xFFFACC15),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
                         Text(
                             text = currentMovie.title,
                             color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
+                            textAlign = TextAlign.Center
                         )
-                        if (sleepTimerRemainingSec > 0 || sleepStopAtEpisodeEnd) {
+                    }
+
+                    // Top-Right Unified Apple TV Frosted Capsule (Lock, Share, Fullscreen)
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(AppleGlassSurface)
+                            .border(1.dp, AppleGlassBorder, RoundedCornerShape(999.dp))
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        if (!useWebViewEmbed) {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(Color(0x33E50914))
-                                    .border(1.dp, FlixColors.RedBright, RoundedCornerShape(999.dp))
-                                    .clickable { showSleepTimerMenu = !showSleepTimerMenu }
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        isScreenLocked = true
+                                        showSpeedPicker = false
+                                        showSleepTimerMenu = false
+                                        isEpisodeDrawerOpen = false
+                                        onShowToast("Đã khóa màn hình cảm ứng")
+                                    },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = if (sleepStopAtEpisodeEnd) "🌙 Hết tập" else "🌙 ${FormatTime.formatTime(sleepTimerRemainingSec.toDouble())}",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Khóa màn hình",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    shareEpisodeLink(
+                                        context = context,
+                                        movie = currentMovie,
+                                        onShowToast = onShowToast
+                                    )
+                                    lastInteractionTick++
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Chia sẻ",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    toggleFullscreenOrientation()
+                                    lastInteractionTick++
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isFullscreenLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = "Toàn màn hình",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
 
-                // Speed Picker Popup Card
+                // -----------------------------------------------------------------
+                // 2. APPLE TV CENTER TRANSPORT OVERLAY (Prev · -10s · Play/Pause · +10s · Next)
+                // -----------------------------------------------------------------
+                if (!useWebViewEmbed && !playbackState.isBuffering && playbackState.errorMessage == null) {
+                    Row(
+                        modifier = Modifier.align(Alignment.Center),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
+                    ) {
+                        // Previous Episode Circle
+                        AppleCircleButton(
+                            icon = Icons.Default.SkipPrevious,
+                            contentDescription = "Tập trước",
+                            sizeDp = 46,
+                            iconSizeDp = 22,
+                            enabled = hasPrevEpisode,
+                            onClick = { switchToEpisode(currentEpIdx - 1) }
+                        )
+
+                        // Rewind 10s Circle
+                        AppleSeekCircleButton(
+                            icon = Icons.Default.FastRewind,
+                            badgeText = "10",
+                            onClick = {
+                                performRelativeSeek(-10)
+                                lastInteractionTick++
+                            }
+                        )
+
+                        // Hero Play / Pause Frosted Circle
+                        Surface(
+                            color = Color(0xD928282E),
+                            shape = CircleShape,
+                            modifier = Modifier
+                                .size(74.dp)
+                                .border(1.5.dp, AppleGlassHighlightBorder, CircleShape)
+                                .clip(CircleShape)
+                                .clickable {
+                                    val player = PlayerController.getOrCreatePlayer(context)
+                                    if (player.isPlaying) {
+                                        player.pause()
+                                        saveCurrentProgress()
+                                    } else {
+                                        if (playbackState.isEnded) {
+                                            player.seekTo(0L)
+                                        }
+                                        player.play()
+                                    }
+                                    lastInteractionTick++
+                                }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (playbackState.isPlaying) "Tạm dừng" else "Phát",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                        }
+
+                        // Forward 10s Circle
+                        AppleSeekCircleButton(
+                            icon = Icons.Default.FastForward,
+                            badgeText = "10",
+                            onClick = {
+                                performRelativeSeek(10)
+                                lastInteractionTick++
+                            }
+                        )
+
+                        // Next Episode Circle
+                        AppleCircleButton(
+                            icon = Icons.Default.SkipNext,
+                            contentDescription = "Tập tiếp",
+                            sizeDp = 46,
+                            iconSizeDp = 22,
+                            enabled = hasNextEpisode,
+                            onClick = { switchToEpisode(currentEpIdx + 1) }
+                        )
+                    }
+                }
+
+                // Speed Picker Popup Card (Apple TV Frosted Sheet)
                 if (showSpeedPicker && !useWebViewEmbed) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(bottom = 135.dp, end = 24.dp)
-                            .background(Color(0xF514161F), RoundedCornerShape(14.dp))
-                            .border(1.dp, FlixColors.Border, RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(bottom = 142.dp, end = 24.dp)
+                            .background(AppleGlassActive, RoundedCornerShape(18.dp))
+                            .border(1.dp, AppleGlassBorder, RoundedCornerShape(18.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
                             text = "Tốc độ phát (Nhấn giữ màn hình để tua 2.0x)",
-                            color = FlixColors.TextSecondary,
+                            color = Color(0xB3EBEBF5),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1395,18 +1552,18 @@ fun PlayerScreen(
                                 val active = kotlin.math.abs(normalPlaybackSpeed - spd) < 0.01f
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (active) FlixColors.Red else FlixColors.BgElevated)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (active) Color.White else Color(0x33FFFFFF))
                                         .clickable {
                                             applyPlaybackSpeed(spd)
                                             showSpeedPicker = false
                                             lastInteractionTick++
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        .padding(horizontal = 13.dp, vertical = 7.dp)
                                 ) {
                                     Text(
                                         text = "${spd}x",
-                                        color = Color.White,
+                                        color = if (active) Color.Black else Color.White,
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1416,20 +1573,20 @@ fun PlayerScreen(
                     }
                 }
 
-                // Sleep Timer Popup Card
+                // Sleep Timer Popup Card (Apple TV Frosted Sheet)
                 if (showSleepTimerMenu && !useWebViewEmbed) {
                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
-                            .padding(bottom = 135.dp, end = 24.dp)
-                            .background(Color(0xF514161F), RoundedCornerShape(14.dp))
-                            .border(1.dp, FlixColors.Border, RoundedCornerShape(14.dp))
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                            .padding(bottom = 142.dp, end = 24.dp)
+                            .background(AppleGlassActive, RoundedCornerShape(18.dp))
+                            .border(1.dp, AppleGlassBorder, RoundedCornerShape(18.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
                             text = "Hẹn giờ tự động tạm dừng phim",
-                            color = FlixColors.TextSecondary,
+                            color = Color(0xB3EBEBF5),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1452,8 +1609,8 @@ fun PlayerScreen(
                                 }
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSelected) FlixColors.Red else FlixColors.BgElevated)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (isSelected) Color.White else Color(0x33FFFFFF))
                                         .clickable {
                                             when (secValue) {
                                                 0 -> {
@@ -1475,11 +1632,11 @@ fun PlayerScreen(
                                             showSleepTimerMenu = false
                                             lastInteractionTick++
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        .padding(horizontal = 13.dp, vertical = 7.dp)
                                 ) {
                                     Text(
                                         text = label,
-                                        color = Color.White,
+                                        color = if (isSelected) Color.Black else Color.White,
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1489,7 +1646,9 @@ fun PlayerScreen(
                     }
                 }
 
-                // Bottom Controls (only for native ExoPlayer mode)
+                // -----------------------------------------------------------------
+                // 3. APPLE TV BOTTOM SCRUBBER & FROSTED PILL BAR
+                // -----------------------------------------------------------------
                 if (!useWebViewEmbed) {
                     Column(
                         modifier = Modifier
@@ -1497,13 +1656,12 @@ fun PlayerScreen(
                             .align(Alignment.BottomCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color(0xF0000000))
+                                    colors = listOf(Color.Transparent, Color(0xEB000000))
                                 )
                             )
                             .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .padding(horizontal = 20.dp, vertical = 14.dp)
                     ) {
-                        // Timeline Seek Bar + Time Labels
                         val curSec = (positionMs / 1000L).toDouble()
                         val durSec = (durationMs / 1000L).toDouble()
                         val progressFraction = if (isDraggingSlider) {
@@ -1513,17 +1671,18 @@ fun PlayerScreen(
                         } else {
                             0f
                         }
+                        val displayedCurSec = if (isDraggingSlider && durSec > 0) sliderDragFraction * durSec else curSec
+                        val remainingSec = (durSec - displayedCurSec).coerceAtLeast(0.0)
 
+                        // Apple TV Scrubber Bar with Elapsed & Remaining Time
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(
-                                text = FormatTime.formatTime(
-                                    if (isDraggingSlider && durSec > 0) sliderDragFraction * durSec else curSec
-                                ),
-                                color = Color.White,
+                                text = FormatTime.formatTime(displayedCurSec),
+                                color = Color(0xE6FFFFFF),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -1544,21 +1703,21 @@ fun PlayerScreen(
                                     lastInteractionTick++
                                 },
                                 colors = SliderDefaults.colors(
-                                    thumbColor = FlixColors.Red,
-                                    activeTrackColor = FlixColors.Red,
-                                    inactiveTrackColor = Color(0x4DFFFFFF)
+                                    thumbColor = Color.White,
+                                    activeTrackColor = Color.White,
+                                    inactiveTrackColor = Color(0x45FFFFFF)
                                 ),
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                text = FormatTime.formatTime(durSec),
-                                color = FlixColors.TextSecondary,
+                                text = if (durSec > 0) "-${FormatTime.formatTime(remainingSec)}" else "00:00",
+                                color = Color(0xB3EBEBF5),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
 
-                        // Control Buttons Row
+                        // Apple TV Bottom Frosted Pills Row
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1566,83 +1725,15 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            // Primary Transport Controls
+                            // Left Episode & Server Pill Group
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (hasPrevEpisode) {
-                                    PlayerActionButton(
-                                        icon = Icons.Default.SkipPrevious,
-                                        label = "Tập trước",
-                                        onClick = { switchToEpisode(currentEpIdx - 1) }
-                                    )
-                                }
-
-                                PlayerActionButton(
-                                    icon = Icons.Default.FastRewind,
-                                    label = "-10s",
-                                    onClick = {
-                                        performRelativeSeek(-10)
-                                        lastInteractionTick++
-                                    }
-                                )
-
-                                // Play / Pause Primary Button
-                                Button(
-                                    onClick = {
-                                        val player = PlayerController.getOrCreatePlayer(context)
-                                        if (player.isPlaying) {
-                                            player.pause()
-                                            saveCurrentProgress()
-                                        } else {
-                                            if (playbackState.isEnded) {
-                                                player.seekTo(0L)
-                                            }
-                                            player.play()
-                                        }
-                                        lastInteractionTick++
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = FlixColors.Red,
-                                        contentColor = Color.White
-                                    ),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (playbackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = if (playbackState.isPlaying) "Pause" else "Play",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (playbackState.isPlaying) "Pause" else "Play",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                PlayerActionButton(
-                                    icon = Icons.Default.FastForward,
-                                    label = "+10s",
-                                    onClick = {
-                                        performRelativeSeek(10)
-                                        lastInteractionTick++
-                                    }
-                                )
-
-                                if (hasNextEpisode) {
-                                    PlayerActionButton(
-                                        icon = Icons.Default.SkipNext,
-                                        label = "Tập tiếp",
-                                        onClick = { switchToEpisode(currentEpIdx + 1) }
-                                    )
-                                }
-
                                 if (episodes.size > 1 || servers.size > 1) {
-                                    PlayerActionButton(
+                                    AppleControlPill(
                                         icon = Icons.AutoMirrored.Filled.FormatListBulleted,
-                                        label = "Tập (${currentEpIdx + 1}/${episodes.size.coerceAtLeast(1)})",
+                                        label = "Tập ${currentEpIdx + 1}/${episodes.size.coerceAtLeast(1)} · Server",
                                         isActive = isEpisodeDrawerOpen,
                                         onClick = {
                                             isEpisodeDrawerOpen = !isEpisodeDrawerOpen
@@ -1652,16 +1743,33 @@ fun PlayerScreen(
                                         }
                                     )
                                 }
+                                if (hasNextEpisode) {
+                                    AppleControlPill(
+                                        icon = Icons.Default.SkipNext,
+                                        label = "Tập tiếp",
+                                        onClick = { switchToEpisode(currentEpIdx + 1) }
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.width(12.dp))
 
-                            // Secondary Controls (Speed, Lock, Aspect, Sleep Timer, PiP, Subtitles, Background, Share, Fullscreen)
+                            // Right Settings & Audio/Video Pill Group
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                PlayerActionButton(
+                                AppleControlPill(
+                                    icon = Icons.Default.ClosedCaption,
+                                    label = if (subtitlesEnabled) "Phụ đề: Bật" else "Phụ đề: Tắt",
+                                    isActive = subtitlesEnabled && subtitleCues.isNotEmpty(),
+                                    onClick = {
+                                        subtitlesEnabled = !subtitlesEnabled
+                                        onShowToast(if (subtitlesEnabled) "Đã bật phụ đề" else "Đã tắt phụ đề")
+                                        lastInteractionTick++
+                                    }
+                                )
+                                AppleControlPill(
                                     icon = Icons.Default.Speed,
                                     label = "${normalPlaybackSpeed}x",
                                     isActive = kotlin.math.abs(normalPlaybackSpeed - 1.0f) > 0.01f || showSpeedPicker,
@@ -1672,23 +1780,12 @@ fun PlayerScreen(
                                         lastInteractionTick++
                                     }
                                 )
-                                PlayerActionButton(
-                                    icon = Icons.Default.Lock,
-                                    label = "Khóa",
-                                    onClick = {
-                                        isScreenLocked = true
-                                        showSpeedPicker = false
-                                        showSleepTimerMenu = false
-                                        isEpisodeDrawerOpen = false
-                                        onShowToast("Đã khóa màn hình cảm ứng")
-                                    }
-                                )
-                                PlayerActionButton(
+                                AppleControlPill(
                                     icon = Icons.Default.AspectRatio,
                                     label = when (resizeMode) {
-                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Zoom"
-                                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Fill"
-                                        else -> "Fit"
+                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Khung hình: Zoom"
+                                        AspectRatioFrameLayout.RESIZE_MODE_FILL -> "Khung hình: Fill"
+                                        else -> "Khung hình: Fit"
                                     },
                                     isActive = resizeMode != AspectRatioFrameLayout.RESIZE_MODE_FIT,
                                     onClick = {
@@ -1696,7 +1793,7 @@ fun PlayerScreen(
                                         lastInteractionTick++
                                     }
                                 )
-                                PlayerActionButton(
+                                AppleControlPill(
                                     icon = Icons.Default.Bedtime,
                                     label = if (sleepStopAtEpisodeEnd) "Hết tập" else if (sleepTimerRemainingSec > 0) "${(sleepTimerRemainingSec / 60).coerceAtLeast(1)}p" else "Hẹn giờ",
                                     isActive = sleepTimerRemainingSec > 0 || sleepStopAtEpisodeEnd || showSleepTimerMenu,
@@ -1704,51 +1801,6 @@ fun PlayerScreen(
                                         showSleepTimerMenu = !showSleepTimerMenu
                                         showSpeedPicker = false
                                         isEpisodeDrawerOpen = false
-                                        lastInteractionTick++
-                                    }
-                                )
-                                PlayerActionButton(
-                                    icon = Icons.Default.ClosedCaption,
-                                    label = if (subtitlesEnabled) "Subs ON" else "Subs OFF",
-                                    isActive = subtitlesEnabled && subtitleCues.isNotEmpty(),
-                                    onClick = {
-                                        subtitlesEnabled = !subtitlesEnabled
-                                        onShowToast(if (subtitlesEnabled) "Đã bật phụ đề" else "Đã tắt phụ đề")
-                                        lastInteractionTick++
-                                    }
-                                )
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                    PlayerActionButton(
-                                        icon = Icons.Default.PictureInPictureAlt,
-                                        label = "PiP",
-                                        onClick = { enterPipMode() }
-                                    )
-                                }
-                                PlayerActionButton(
-                                    icon = Icons.Default.Headphones,
-                                    label = "Phát nền",
-                                    onClick = {
-                                        onShowToast("Đang phát trong nền — điều khiển từ thanh thông báo / màn hình khóa")
-                                        activity?.moveTaskToBack(true)
-                                    }
-                                )
-                                PlayerActionButton(
-                                    icon = Icons.Default.Share,
-                                    label = "Chia sẻ",
-                                    onClick = {
-                                        shareEpisodeLink(
-                                            context = context,
-                                            movie = currentMovie,
-                                            onShowToast = onShowToast
-                                        )
-                                        lastInteractionTick++
-                                    }
-                                )
-                                PlayerActionButton(
-                                    icon = if (isFullscreenLandscape) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                    label = if (isFullscreenLandscape) "Exit Full" else "Full screen",
-                                    onClick = {
-                                        toggleFullscreenOrientation()
                                         lastInteractionTick++
                                     }
                                 )
@@ -1760,7 +1812,7 @@ fun PlayerScreen(
         }
 
         // In-Player Episode & Multi-Server Drawer Modal
-        AnimatedVisibility(
+        androidx.compose.animation.AnimatedVisibility(
             visible = isEpisodeDrawerOpen && !isScreenLocked && !isInPipMode,
             enter = fadeIn(),
             exit = fadeOut(),
@@ -1777,8 +1829,8 @@ fun PlayerScreen(
                     modifier = Modifier
                         .widthIn(min = 320.dp, max = 440.dp)
                         .fillMaxHeight()
-                        .background(Color(0xFA12141D))
-                        .border(1.dp, FlixColors.Border)
+                        .background(Color(0xFA141418))
+                        .border(1.dp, AppleGlassBorder)
                         .clickable(enabled = false) {}
                         .statusBarsPadding()
                         .navigationBarsPadding()
@@ -1799,7 +1851,7 @@ fun PlayerScreen(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .background(FlixColors.BgElevated)
+                                .background(AppleGlassSurface)
                                 .clickable { isEpisodeDrawerOpen = false },
                             contentAlignment = Alignment.Center
                         ) {
@@ -1818,7 +1870,7 @@ fun PlayerScreen(
                     if (servers.size > 1) {
                         Text(
                             text = "Nguồn phát (Server):",
-                            color = FlixColors.TextSecondary,
+                            color = Color(0xB3EBEBF5),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1831,14 +1883,15 @@ fun PlayerScreen(
                                 val isCurrentSrv = srv.serverName == currentMovie.serverName
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isCurrentSrv) FlixColors.Red else FlixColors.BgElevated)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (isCurrentSrv) Color.White else AppleGlassSurface)
+                                        .border(1.dp, if (isCurrentSrv) Color.White else AppleGlassBorder, RoundedCornerShape(999.dp))
                                         .clickable { switchToServer(srv) }
-                                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                                        .padding(horizontal = 13.dp, vertical = 7.dp)
                                 ) {
                                     Text(
                                         text = srv.serverName,
-                                        color = Color.White,
+                                        color = if (isCurrentSrv) Color.Black else Color.White,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1864,15 +1917,15 @@ fun PlayerScreen(
                                 val selected = drawerEpisodeRangeIdx.coerceIn(0, totalChunks - 1) == chunkIdx
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (selected) Color(0xFF2B3040) else FlixColors.BgElevated)
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(if (selected) Color(0xFF2C2C34) else AppleGlassSurface)
                                         .border(
                                             1.dp,
-                                            if (selected) FlixColors.RedBright else Color.Transparent,
-                                            RoundedCornerShape(6.dp)
+                                            if (selected) Color.White else Color.Transparent,
+                                            RoundedCornerShape(999.dp)
                                         )
                                         .clickable { drawerEpisodeRangeIdx = chunkIdx }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                        .padding(horizontal = 11.dp, vertical = 5.dp)
                                 ) {
                                     Text(
                                         text = "Tập $startNum-$endNum",
@@ -1906,18 +1959,18 @@ fun PlayerScreen(
                                 val resume = onGetEpisodeResume(currentMovie.effectiveKey, epIdx)
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(
                                             when {
-                                                isPlayingEp -> FlixColors.Red
+                                                isPlayingEp -> Color.White
                                                 resume != null -> Color(0xFF272B3A)
-                                                else -> FlixColors.BgElevated
+                                                else -> AppleGlassSurface
                                             }
                                         )
                                         .border(
                                             1.dp,
-                                            if (isPlayingEp) Color.White else FlixColors.Border,
-                                            RoundedCornerShape(8.dp)
+                                            if (isPlayingEp) Color.White else AppleGlassBorder,
+                                            RoundedCornerShape(10.dp)
                                         )
                                         .clickable { switchToEpisode(epIdx) }
                                         .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -1928,7 +1981,7 @@ fun PlayerScreen(
                                         } else {
                                             ep.name
                                         },
-                                        color = Color.White,
+                                        color = if (isPlayingEp) Color.Black else Color.White,
                                         fontSize = 12.5.sp,
                                         fontWeight = if (isPlayingEp) FontWeight.Bold else FontWeight.Medium
                                     )
@@ -1943,37 +1996,107 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun PlayerActionButton(
+private fun AppleCircleButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    sizeDp: Int = 44,
+    iconSizeDp: Int = 20,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (enabled) AppleGlassSurface else Color(0x591C1C1E),
+        shape = CircleShape,
+        modifier = Modifier
+            .size(sizeDp.dp)
+            .border(
+                width = 1.dp,
+                color = if (enabled) AppleGlassBorder else Color(0x1AFFFFFF),
+                shape = CircleShape
+            )
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (enabled) Color.White else Color(0x59FFFFFF),
+                modifier = Modifier.size(iconSizeDp.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppleSeekCircleButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    badgeText: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = AppleGlassSurface,
+        shape = CircleShape,
+        modifier = Modifier
+            .size(56.dp)
+            .border(1.dp, AppleGlassBorder, CircleShape)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = badgeText,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = badgeText,
+                color = Color.White,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppleControlPill(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     isActive: Boolean = false,
     onClick: () -> Unit
 ) {
     Surface(
-        color = if (isActive) Color(0x33E50914) else Color(0x99181A22),
-        shape = RoundedCornerShape(8.dp),
+        color = if (isActive) Color.White else AppleGlassSurface,
+        shape = RoundedCornerShape(999.dp),
         modifier = Modifier
             .border(
                 width = 1.dp,
-                color = if (isActive) FlixColors.Red else FlixColors.Border,
-                shape = RoundedCornerShape(8.dp)
+                color = if (isActive) Color.White else AppleGlassBorder,
+                shape = RoundedCornerShape(999.dp)
             )
+            .clip(RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
+                tint = if (isActive) Color.Black else Color.White,
+                modifier = Modifier.size(15.dp)
             )
             Text(
                 text = label,
-                color = Color.White,
+                color = if (isActive) Color.Black else Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
@@ -1988,7 +2111,8 @@ private fun SeekRippleBadge(
 ) {
     Column(
         modifier = Modifier
-            .background(Color(0x99000000), CircleShape)
+            .background(AppleGlassActive, CircleShape)
+            .border(1.dp, AppleGlassBorder, CircleShape)
             .padding(horizontal = 24.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -2000,7 +2124,7 @@ private fun SeekRippleBadge(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "$seconds seconds",
+            text = "${if (isRewind) "-" else "+"}${seconds}s",
             color = Color.White,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold
