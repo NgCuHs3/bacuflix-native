@@ -159,7 +159,10 @@ fun PlayerScreen(
 
     val isEmbedOnly = remember(currentMovie.m3u8, currentMovie.fallbackEmbed) {
         val m3u8 = currentMovie.m3u8.trim()
-        (!m3u8.contains(".m3u8", ignoreCase = true) || m3u8.isEmpty()) &&
+        val isNativePlayable = m3u8.contains(".m3u8", ignoreCase = true) ||
+            m3u8.contains("streamc.xyz", ignoreCase = true) ||
+            m3u8.contains("streamvsmov.com", ignoreCase = true)
+        (!isNativePlayable || m3u8.isEmpty()) &&
             currentMovie.fallbackEmbed.isNotBlank()
     }
     var forceFallbackEmbed by remember(currentMovie.id, currentMovie.currentEpisodeIndex) { mutableStateOf(false) }
@@ -530,7 +533,29 @@ fun PlayerScreen(
         } catch (_: Exception) {}
         if (!useWebViewEmbed) {
             val startMs = (currentMovie.resumeTime.coerceAtLeast(0)) * 1000L
-            PlayerController.startPlayback(context, currentMovie, startMs)
+            val rawStream = currentMovie.m3u8.trim()
+            val resolvedStream = when {
+                rawStream.contains("streamc.xyz", ignoreCase = true) && rawStream.contains("hash=") -> {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.bacuflix.app.data.KkphimApiService.resolveStreamcBootstrapSync(rawStream)
+                    }
+                }
+                rawStream.contains("streamvsmov.com/video/", ignoreCase = true) -> {
+                    com.bacuflix.app.data.KkphimApiService.extractDirectM3u8FromEmbed(rawStream)
+                }
+                else -> rawStream
+            }
+            if (resolvedStream.isNullOrBlank()) {
+                // If StreamC bootstrap failed (e.g. Turnstile enabled), fall back to WebView with Referer
+                forceFallbackEmbed = true
+                return@LaunchedEffect
+            }
+            val movieToPlay = if (resolvedStream != rawStream) {
+                currentMovie.copy(m3u8 = resolvedStream)
+            } else {
+                currentMovie
+            }
+            PlayerController.startPlayback(context, movieToPlay, startMs)
             PlayerController.setPlaybackSpeed(context, normalPlaybackSpeed)
             if (currentMovie.resumeTime > 5) {
                 onShowToast("Tiếp tục phát từ ${FormatTime.formatTime(currentMovie.resumeTime.toDouble())}")
@@ -2172,7 +2197,14 @@ private fun FallbackEmbedWebView(
                 webChromeClient = WebChromeClient()
                 webViewClient = WebViewClient()
                 if (embedUrl.isNotBlank()) {
-                    loadUrl(embedUrl)
+                    val headers = when {
+                        embedUrl.contains("streamc.xyz", ignoreCase = true) ->
+                            mapOf("Referer" to "https://phim.nguonc.com/")
+                        embedUrl.contains("streamvsmov.com", ignoreCase = true) ->
+                            mapOf("Referer" to "https://vsmov.com/")
+                        else -> emptyMap()
+                    }
+                    loadUrl(embedUrl, headers)
                 }
                 webViewRef = this
             }
@@ -2180,7 +2212,14 @@ private fun FallbackEmbedWebView(
         update = { webView ->
             webViewRef = webView
             if (webView.url != embedUrl && embedUrl.isNotBlank()) {
-                webView.loadUrl(embedUrl)
+                val headers = when {
+                    embedUrl.contains("streamc.xyz", ignoreCase = true) ->
+                        mapOf("Referer" to "https://phim.nguonc.com/")
+                    embedUrl.contains("streamvsmov.com", ignoreCase = true) ->
+                        mapOf("Referer" to "https://vsmov.com/")
+                    else -> emptyMap()
+                }
+                webView.loadUrl(embedUrl, headers)
             }
         },
         modifier = modifier

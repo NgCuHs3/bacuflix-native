@@ -24,11 +24,14 @@ class PngStrippingDataSource(
     companion object {
         private const val INITIAL_PEEK_BYTES = 16 * 1024
         private const val MAX_HEADER_PEEK_BYTES = 256 * 1024
+
+        @Volatile
+        var activeStreamcOrigin: String = ""
     }
 
     class Factory(
         private val upstreamFactory: DataSource.Factory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Mozilla/5.0 (Linux; Android 14; BACUFlix/3.0) AppleWebKit/537.36")
+            .setUserAgent("Mozilla/5.0 (Linux; Android 14; BACUFlix/3.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(20000)
@@ -46,15 +49,56 @@ class PngStrippingDataSource(
     private var upstreamEof = false
     private var opened = false
 
-    override fun open(dataSpec: DataSpec): Long {
-        transferInitializing(dataSpec)
-        currentUri = dataSpec.uri
-        val path = dataSpec.uri.path?.lowercase().orEmpty()
+    private fun enrichDataSpecHeaders(dataSpec: DataSpec): DataSpec {
+        val host = dataSpec.uri.host?.lowercase().orEmpty()
+        val scheme = dataSpec.uri.scheme?.lowercase() ?: "https"
+        return when {
+            host.contains("streamvsmov.com") -> {
+                dataSpec.withAdditionalHeaders(
+                    mapOf(
+                        "Origin" to "https://vsmov.com",
+                        "Referer" to "https://vsmov.com/"
+                    )
+                )
+            }
+            host.contains("streamc.xyz") -> {
+                val origin = "$scheme://$host"
+                activeStreamcOrigin = origin
+                dataSpec.withAdditionalHeaders(
+                    mapOf(
+                        "Origin" to origin,
+                        "Referer" to "$origin/"
+                    )
+                )
+            }
+            activeStreamcOrigin.isNotBlank() &&
+                !host.contains("kkphim") &&
+                !host.contains("phimapi") &&
+                !host.contains("ophim") -> {
+                val origin = activeStreamcOrigin
+                dataSpec.withAdditionalHeaders(
+                    mapOf(
+                        "Origin" to origin,
+                        "Referer" to "$origin/"
+                    )
+                )
+            }
+            else -> dataSpec
+        }
+    }
 
-        // Playlists (.m3u8), subtitles (.vtt/.srt), encryption keys (.key), and progressive MP4/MKV
-        // pass through directly without header inspection.
+    override fun open(dataSpec: DataSpec): Long {
+        val enrichedSpec = enrichDataSpecHeaders(dataSpec)
+        transferInitializing(enrichedSpec)
+        currentUri = enrichedSpec.uri
+        val path = enrichedSpec.uri.path?.lowercase().orEmpty()
+        val host = enrichedSpec.uri.host?.lowercase().orEmpty()
+
+        // Playlists (.m3u8 or StreamC token playlists), subtitles (.vtt/.srt), encryption keys (.key),
+        // and progressive MP4/MKV pass through directly without header inspection.
         if (
             path.endsWith(".m3u8") ||
+            host.contains("streamc.xyz") ||
             path.endsWith(".vtt") ||
             path.endsWith(".srt") ||
             path.endsWith(".key") ||
@@ -62,17 +106,17 @@ class PngStrippingDataSource(
             path.endsWith(".mkv")
         ) {
             passthroughMode = true
-            val length = upstream.open(dataSpec)
+            val length = upstream.open(enrichedSpec)
             opened = true
-            transferStarted(dataSpec)
+            transferStarted(enrichedSpec)
             return length
         }
 
         passthroughMode = false
         upstreamEof = false
-        val upstreamLength = upstream.open(dataSpec)
+        val upstreamLength = upstream.open(enrichedSpec)
         opened = true
-        transferStarted(dataSpec)
+        transferStarted(enrichedSpec)
 
         var buf = ByteArray(INITIAL_PEEK_BYTES)
         var totalRead = 0

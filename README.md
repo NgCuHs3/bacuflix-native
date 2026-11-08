@@ -7,9 +7,9 @@
 ## Key Features
 
 ### 1. Catalog & Multi-Source API Integration
-- **KKPhim + OPhim + Nguonc Multi-Source API (`KkphimApiService.kt`)**:
-  - New releases (`/danh-sach/phim-moi-cap-nhat`), Categories (`phim-le`, `phim-bo`, `hoat-hinh`, `tv-shows`), Genres (`/v1/api/the-loai/{slug}`), Countries (`/v1/api/quoc-gia/{slug}`), Search (`/v1/api/tim-kiem`), and Movie Details (`/phim/{slug}`).
-  - Automatic multi-source server aggregation: merges backup stream servers from **OPhim (`ophim1.com`)** and **Nguonc (`phim.nguonc.com`)** alongside **KKPhim (`phimapi.com`)**.
+- **KKPhim + VSMov (Phim4K) + NguonC Multi-Source API (`KkphimApiService.kt`)**:
+  - New releases (`/danh-sach/phim-moi-cap-nhat`), Categories (`phim-le`, `phim-bo`, `hoat-hinh`, `tv-shows`), Genres (`/v1/api/the-loai/{slug}`), Countries (`/v1/api/quoc-gia/{slug}`), Multi-Source Search, and Movie Details (`/phim/{slug}`).
+  - Automatic multi-source server aggregation: merges backup stream servers from **VSMov / Phim4K (`vsmov.com/api` with automatic `streamvsmov.com` `.m3u8` extraction)** and **NguonC (`phim.nguonc.com` with automatic `streamc.xyz` HLS bootstrap & Referer injection)** alongside **KKPhim (`phimapi.com`)**.
 - **GitHub Raw Markdown Catalog (`CatalogRepository.kt` & `MovieMarkdownParser.kt`)**:
   - Fetches `movies.md` from GitHub Raw with a 10-minute cache TTL and falls back seamlessly to bundled `assets/data/movies.md`.
 

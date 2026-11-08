@@ -15,17 +15,100 @@ import java.net.URL
 import java.net.URLEncoder
 
 /**
- * KKPhim + Multi-Source (OPhim & Nguonc) API client ported from js/services/kkphim-api.js.
+ * Multi-Source Vietnamese Movie API client combining:
+ * 1. KKPhim (https://phimapi.com)
+ * 2. VSMov / Phim4K (https://vsmov.com/api) — replaces blocked ophim1.com with 4K/FHD HLS streams
+ * 3. NguonC (https://phim.nguonc.com) — with StreamC HLS bootstrap resolver
  */
 class KkphimApiService {
     companion object {
         const val BASE_URL = "https://phimapi.com"
         const val DEFAULT_CDN = "https://phimimg.com"
-        const val OPHIM_BASE_URL = "https://ophim1.com"
-        const val OPHIM_CDN = "https://img.ophim.live/uploads/movies"
+        const val VSMOV_BASE_URL = "https://vsmov.com/api"
+        const val VSMOV_CDN = "https://vsmov.com"
         const val NGUONC_BASE_URL = "https://phim.nguonc.com"
         private const val REQUEST_TIMEOUT_MS = 12000
-        private const val BACKUP_SOURCE_TIMEOUT_MS = 5000
+        private const val BACKUP_SOURCE_TIMEOUT_MS = 6000
+        private const val BROWSER_UA =
+            "Mozilla/5.0 (Linux; Android 14; BACUFlix/3.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+
+        private val VSMOV_EMBED_REGEX =
+            Regex("""^(https?://[^/]*streamvsmov\.com)/video/([0-9a-fA-F-]+).*$""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Converts a VSMov embed link (`https://v15.streamvsmov.com/video/{uuid}`) or
+         * `?url=https://...m3u8` wrapper into a direct playable `.m3u8` URL.
+         */
+        fun extractDirectM3u8FromEmbed(embedUrl: String?): String {
+            val clean = embedUrl?.trim().orEmpty()
+            if (clean.isEmpty()) return ""
+            val vsmovMatch = VSMOV_EMBED_REGEX.matchEntire(clean)
+            if (vsmovMatch != null) {
+                val baseUrl = vsmovMatch.groupValues[1].trimEnd('/')
+                val videoHash = vsmovMatch.groupValues[2]
+                return "$baseUrl/stream/$videoHash/master.m3u8"
+            }
+            if (clean.contains("url=", ignoreCase = true)) {
+                val afterUrl = clean.substringAfter("url=", "").substringBefore("&").trim()
+                if (afterUrl.contains(".m3u8", ignoreCase = true)) {
+                    return try {
+                        java.net.URLDecoder.decode(afterUrl, "UTF-8")
+                    } catch (_: Exception) {
+                        afterUrl
+                    }
+                }
+            }
+            return ""
+        }
+
+        /**
+         * Resolves a NguonC StreamC embed URL (`https://embed18.streamc.xyz/embed.php?hash=...`)
+         * into a direct HLS playlist URL via its JSON bootstrap endpoint.
+         */
+        fun resolveStreamcBootstrapSync(embedUrl: String, timeoutMs: Int = 6000): String? {
+            val clean = embedUrl.trim()
+            if (!clean.contains("streamc.xyz", ignoreCase = true) || !clean.contains("hash=")) {
+                return null
+            }
+            return try {
+                val parsed = URL(clean)
+                val origin = "${parsed.protocol}://${parsed.host}"
+                val conn = (parsed.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    doOutput = true
+                    setRequestProperty("User-Agent", BROWSER_UA)
+                    setRequestProperty("Origin", origin)
+                    setRequestProperty("Referer", "$origin/")
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    val payload =
+                        """{"action":"bootstrap","referrer":"https://phim.nguonc.com/","frame_origins":["https://phim.nguonc.com"],"request_grant":true,"playlist_format":"hls","pretty_url":true,"path_chunks":true,"bootstrap_format":"json"}"""
+                    conn.outputStream.use { os ->
+                        os.write(payload.toByteArray(Charsets.UTF_8))
+                    }
+                    if (conn.responseCode !in 200..299) return null
+                    val body = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(body)
+                    if (json.optBoolean("turnstileEnabled", false)) return null
+                    val preissued = json.optJSONObject("preissued") ?: return null
+                    val playlist = preissued.optString("playlist").trim()
+                    if (playlist.startsWith("http://") || playlist.startsWith("https://")) {
+                        com.bacuflix.app.player.PngStrippingDataSource.activeStreamcOrigin = origin
+                        playlist
+                    } else {
+                        null
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
 
         fun buildImageUrl(url: String?, cdnDomain: String? = DEFAULT_CDN): String {
             val clean = url?.trim().orEmpty()
@@ -46,6 +129,7 @@ class KkphimApiService {
             val title = item.optString("name")
                 .ifBlank { item.optString("title") }
                 .ifBlank { item.optString("origin_name") }
+                .ifBlank { item.optString("original_name") }
                 .ifBlank { "Phim không tên" }
             val rawPoster = item.optString("poster_url").ifBlank { item.optString("thumb_url") }
             val rawThumb = item.optString("thumb_url").ifBlank { item.optString("poster_url") }
@@ -53,8 +137,8 @@ class KkphimApiService {
             val thumb = buildImageUrl(rawThumb, cdnDomain)
             val year = item.opt("year")?.toString()?.takeIf { it != "null" }.orEmpty()
             val quality = item.optString("quality").ifBlank { "FHD" }
-            val lang = item.optString("lang").ifBlank { "Vietsub" }
-            val episodeCurrent = item.optString("episode_current")
+            val lang = item.optString("lang").ifBlank { item.optString("language") }.ifBlank { "Vietsub" }
+            val episodeCurrent = item.optString("episode_current").ifBlank { item.optString("current_episode") }
             val time = item.optString("time")
             val type = item.optString("type")
 
@@ -63,7 +147,7 @@ class KkphimApiService {
                 slug = slug,
                 title = title,
                 seriesTitle = title,
-                originTitle = item.optString("origin_name"),
+                originTitle = item.optString("origin_name").ifBlank { item.optString("original_name") },
                 poster = poster,
                 thumb = thumb,
                 year = year,
@@ -88,14 +172,15 @@ class KkphimApiService {
                 } else {
                     rawName
                 }
-                val dataArr = srvObj.optJSONArray("server_data") ?: JSONArray()
+                val dataArr = srvObj.optJSONArray("server_data") ?: srvObj.optJSONArray("items") ?: JSONArray()
                 val episodeList = mutableListOf<EpisodeItem>()
                 for (j in 0 until dataArr.length()) {
                     val epObj = dataArr.optJSONObject(j) ?: continue
                     val name = epObj.optString("name").ifBlank { "Tập ${j + 1}" }
                     val epSlug = epObj.optString("slug").ifBlank { j.toString() }
-                    val linkM3u8 = epObj.optString("link_m3u8").trim()
-                    val linkEmbed = epObj.optString("link_embed").trim()
+                    val rawM3u8 = epObj.optString("link_m3u8").ifBlank { epObj.optString("m3u8") }.trim()
+                    val linkEmbed = epObj.optString("link_embed").ifBlank { epObj.optString("embed") }.trim()
+                    val linkM3u8 = rawM3u8.ifBlank { extractDirectM3u8FromEmbed(linkEmbed) }
                     val stream = linkM3u8.ifBlank { linkEmbed }
                     if (stream.isNotBlank()) {
                         episodeList.add(
@@ -121,7 +206,7 @@ class KkphimApiService {
             return servers
         }
 
-        fun parseNguoncServers(episodesArray: JSONArray?, sourcePrefix: String = "Nguonc"): List<EpisodeServer> {
+        fun parseNguoncServers(episodesArray: JSONArray?, sourcePrefix: String = "NguonC"): List<EpisodeServer> {
             if (episodesArray == null) return emptyList()
             val servers = mutableListOf<EpisodeServer>()
             for (i in 0 until episodesArray.length()) {
@@ -138,8 +223,9 @@ class KkphimApiService {
                     val epObj = itemsArr.optJSONObject(j) ?: continue
                     val name = epObj.optString("name").ifBlank { "Tập ${j + 1}" }
                     val epSlug = epObj.optString("slug").ifBlank { j.toString() }
-                    val linkM3u8 = epObj.optString("m3u8").ifBlank { epObj.optString("link_m3u8") }.trim()
+                    val rawM3u8 = epObj.optString("m3u8").ifBlank { epObj.optString("link_m3u8") }.trim()
                     val linkEmbed = epObj.optString("embed").ifBlank { epObj.optString("link_embed") }.trim()
+                    val linkM3u8 = rawM3u8.ifBlank { extractDirectM3u8FromEmbed(linkEmbed) }
                     val stream = linkM3u8.ifBlank { linkEmbed }
                     if (stream.isNotBlank()) {
                         episodeList.add(
@@ -288,19 +374,67 @@ class KkphimApiService {
         val limitNum = if (limit > 0) limit else 20
         val pageNum = if (page > 0) page else 1
         val encoded = URLEncoder.encode(kw, "UTF-8")
-        val res = fetchJson("$BASE_URL/v1/api/tim-kiem?keyword=$encoded&limit=$limitNum&page=$pageNum")
-        val data = res.optJSONObject("data") ?: JSONObject()
-        val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
-        val movies = parseItemsArray(data.optJSONArray("items"), cdn)
-        val total = data.optJSONObject("params")
-            ?.optJSONObject("pagination")
-            ?.optInt("totalItems", movies.size) ?: movies.size
-        MovieListResponse(
-            movies = movies,
-            cdn = cdn,
-            title = kw,
-            totalItems = total
-        )
+
+        coroutineScope {
+            val kkphimDeferred = async {
+                try {
+                    fetchJson("$BASE_URL/v1/api/tim-kiem?keyword=$encoded&limit=$limitNum&page=$pageNum")
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val vsmovDeferred = async {
+                try {
+                    fetchJson("$VSMOV_BASE_URL/tim-kiem?keyword=$encoded&page=$pageNum", BACKUP_SOURCE_TIMEOUT_MS)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val nguoncDeferred = async {
+                try {
+                    fetchJson("$NGUONC_BASE_URL/api/films/search?keyword=$encoded&page=$pageNum", BACKUP_SOURCE_TIMEOUT_MS)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            val kkphimRes = kkphimDeferred.await()
+            val vsmovRes = vsmovDeferred.await()
+            val nguoncRes = nguoncDeferred.await()
+
+            val data = kkphimRes?.optJSONObject("data") ?: JSONObject()
+            val cdn = data.optString("APP_DOMAIN_CDN_IMAGE").ifBlank { DEFAULT_CDN }
+            val kkphimMovies = parseItemsArray(data.optJSONArray("items"), cdn)
+            val vsmovMovies = parseItemsArray(
+                vsmovRes?.optJSONArray("items") ?: vsmovRes?.optJSONObject("data")?.optJSONArray("items"),
+                VSMOV_CDN
+            )
+            val nguoncMovies = parseItemsArray(
+                nguoncRes?.optJSONArray("items"),
+                NGUONC_BASE_URL
+            )
+
+            val merged = mutableListOf<Movie>()
+            val seenSlugs = mutableSetOf<String>()
+            for (m in kkphimMovies + vsmovMovies + nguoncMovies) {
+                val key = m.slug.lowercase().trim()
+                if (key.isNotEmpty() && seenSlugs.add(key)) {
+                    merged.add(m)
+                }
+            }
+
+            val total = data.optJSONObject("params")
+                ?.optJSONObject("pagination")
+                ?.optInt("totalItems", merged.size)
+                ?.coerceAtLeast(merged.size) ?: merged.size
+
+            MovieListResponse(
+                movies = merged,
+                cdn = cdn,
+                title = kw,
+                totalItems = total
+            )
+        }
     }
 
     suspend fun getMovieDetail(slug: String): MovieDetailResponse = withContext(Dispatchers.IO) {
@@ -318,9 +452,9 @@ class KkphimApiService {
                     null
                 }
             }
-            val ophimDeferred = async {
+            val vsmovDeferred = async {
                 try {
-                    fetchJson("$OPHIM_BASE_URL/phim/$encoded", BACKUP_SOURCE_TIMEOUT_MS)
+                    fetchJson("$VSMOV_BASE_URL/phim/$encoded", BACKUP_SOURCE_TIMEOUT_MS)
                 } catch (_: Exception) {
                     null
                 }
@@ -334,16 +468,57 @@ class KkphimApiService {
             }
 
             val kkphimRes = kkphimDeferred.await()
-            val ophimRes = ophimDeferred.await()
-            val nguoncRes = nguoncDeferred.await()
+            var vsmovRes = vsmovDeferred.await()
+            var nguoncRes = nguoncDeferred.await()
 
-            val primaryRes = kkphimRes ?: ophimRes
-            val primaryMovieObj = primaryRes?.optJSONObject("movie") ?: nguoncRes?.optJSONObject("movie")
+            val primaryRes = kkphimRes ?: vsmovRes
+            val primaryMovieObj = primaryRes?.optJSONObject("movie")
+                ?: primaryRes?.optJSONObject("data")?.optJSONObject("movie")
+                ?: nguoncRes?.optJSONObject("movie")
                 ?: throw IllegalStateException("Không tìm thấy thông tin phim.")
 
-            val primaryCdn = if (kkphimRes != null) DEFAULT_CDN else OPHIM_CDN
+            val primaryCdn = when {
+                kkphimRes != null -> DEFAULT_CDN
+                vsmovRes != null -> VSMOV_CDN
+                else -> NGUONC_BASE_URL
+            }
             val baseMovie = normalizeMovie(primaryMovieObj, primaryCdn)
                 ?: throw IllegalStateException("Không thể phân tích thông tin phim.")
+
+            // Try alternate year-suffixed or year-stripped slug for backup sources if initial slug missed
+            val yearSuffixRegex = Regex("""-(19|20)\d{2}$""")
+            val altSlug = if (yearSuffixRegex.containsMatchIn(cleanSlug)) {
+                cleanSlug.replace(yearSuffixRegex, "")
+            } else if (baseMovie.year.length == 4) {
+                "$cleanSlug-${baseMovie.year}"
+            } else {
+                ""
+            }
+
+            if (altSlug.isNotBlank() && altSlug != cleanSlug) {
+                val encodedAlt = URLEncoder.encode(altSlug, "UTF-8")
+                val altVsmovDeferred = if (vsmovRes == null) {
+                    async {
+                        try {
+                            fetchJson("$VSMOV_BASE_URL/phim/$encodedAlt", BACKUP_SOURCE_TIMEOUT_MS)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                } else null
+                val altNguoncDeferred = if (nguoncRes == null) {
+                    async {
+                        try {
+                            fetchJson("$NGUONC_BASE_URL/api/film/$encodedAlt", BACKUP_SOURCE_TIMEOUT_MS)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                } else null
+
+                if (vsmovRes == null) vsmovRes = altVsmovDeferred?.await()
+                if (nguoncRes == null) nguoncRes = altNguoncDeferred?.await()
+            }
 
             val actors = parseStringOrNameArray(primaryMovieObj.optJSONArray("actor"))
                 .ifEmpty {
@@ -379,15 +554,17 @@ class KkphimApiService {
             }
 
             if (kkphimRes != null) {
-                appendUniqueServers(parseStandardServers(kkphimRes.optJSONArray("episodes"), ""))
+                appendUniqueServers(parseStandardServers(kkphimRes.optJSONArray("episodes"), "KKPhim"))
             }
-            if (ophimRes != null) {
-                appendUniqueServers(parseStandardServers(ophimRes.optJSONArray("episodes"), "OPhim"))
+            if (vsmovRes != null) {
+                val vsmovEps = vsmovRes.optJSONArray("episodes")
+                    ?: vsmovRes.optJSONObject("data")?.optJSONArray("episodes")
+                appendUniqueServers(parseStandardServers(vsmovEps, "Phim4K"))
             }
             if (nguoncRes != null) {
                 val nguoncEpArr = nguoncRes.optJSONObject("movie")?.optJSONArray("episodes")
                     ?: nguoncRes.optJSONArray("episodes")
-                appendUniqueServers(parseNguoncServers(nguoncEpArr, "Nguonc"))
+                appendUniqueServers(parseNguoncServers(nguoncEpArr, "NguonC"))
             }
 
             val finalMovie = enrichedMovie.copy(serversList = allServers)

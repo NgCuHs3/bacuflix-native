@@ -185,10 +185,29 @@ class BacuFlixUnitTests {
                 )
             }
         )
-        val ophimServers = KkphimApiService.parseStandardServers(ophimJson, "OPhim")
-        assertEquals(1, ophimServers.size)
-        assertEquals("OPhim · Vietsub #1", ophimServers[0].serverName)
-        assertEquals("https://ophim.example.com/ep1.m3u8", ophimServers[0].episodes[0].m3u8)
+        val vsmovJson = JSONArray().put(
+            JSONObject().apply {
+                put("server_name", "Vietsub #1")
+                put(
+                    "server_data",
+                    JSONArray().put(
+                        JSONObject().apply {
+                            put("name", "Tập 1")
+                            put("slug", "tap-1")
+                            put("link_m3u8", "")
+                            put("link_embed", "https://v15.streamvsmov.com/video/56a9cd2c-c556-41c3-8db1-f67ea531d0d9")
+                        }
+                    )
+                )
+            }
+        )
+        val vsmovServers = KkphimApiService.parseStandardServers(vsmovJson, "Phim4K")
+        assertEquals(1, vsmovServers.size)
+        assertEquals("Phim4K · Vietsub #1", vsmovServers[0].serverName)
+        assertEquals(
+            "https://v15.streamvsmov.com/stream/56a9cd2c-c556-41c3-8db1-f67ea531d0d9/master.m3u8",
+            vsmovServers[0].episodes[0].m3u8
+        )
 
         val nguoncJson = JSONArray().put(
             JSONObject().apply {

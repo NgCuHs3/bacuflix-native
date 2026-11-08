@@ -243,7 +243,8 @@ object PlayerController {
             .build()
 
         try {
-            val isHls = streamUrl.contains(".m3u8", ignoreCase = true)
+            val isHls = streamUrl.contains(".m3u8", ignoreCase = true) ||
+                streamUrl.contains("streamc.xyz", ignoreCase = true)
             if (isHls) {
                 val hlsSource = HlsMediaSource.Factory(dataSourceFactory)
                     .setAllowChunklessPreparation(true)
