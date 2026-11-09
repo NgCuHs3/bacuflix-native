@@ -503,8 +503,7 @@ fun DownloadedMovieCard(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     CircularProgressIndicator(
-                        progress = { item.progressPercent / 100f },
-                        modifier = Modifier.size(38.dp),
+                        modifier = Modifier.size(36.dp),
                         color = FlixColors.RedBright,
                         strokeWidth = 3.dp
                     )

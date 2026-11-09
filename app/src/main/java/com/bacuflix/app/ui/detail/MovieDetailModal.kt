@@ -43,7 +43,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import com.bacuflix.app.download.DownloadItem
 import com.bacuflix.app.download.DownloadStatus
-import com.bacuflix.app.model.EpisodeItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme

@@ -1479,7 +1479,6 @@ fun PlayerScreen(
                         ) {
                             if (isDownloading) {
                                 CircularProgressIndicator(
-                                    progress = { downloadProgress / 100f },
                                     modifier = Modifier.size(18.dp),
                                     color = FlixColors.RedBright,
                                     strokeWidth = 2.dp
