@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +42,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FileDownloadDone
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Keyboard
@@ -48,12 +52,14 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -65,6 +71,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -80,19 +87,25 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bacuflix.app.download.DownloadItem
+import com.bacuflix.app.download.DownloadStatus
 import com.bacuflix.app.model.HomeTab
 import com.bacuflix.app.ui.components.AsyncImagePoster
 import com.bacuflix.app.ui.components.CatalogFilterBar
 import com.bacuflix.app.ui.components.CatalogMovieCard
 import com.bacuflix.app.ui.components.ContinueWatchingSection
+import com.bacuflix.app.ui.components.DownloadedMovieCard
 import com.bacuflix.app.ui.components.GenreBrowsingSection
 import com.bacuflix.app.ui.components.HeroCarousel
 import com.bacuflix.app.ui.components.MovieCarouselSection
@@ -113,9 +126,11 @@ fun HomeScreen(
     val state by viewModel.uiState.collectAsState()
     val favoriteKeys by viewModel.favoriteKeys.collectAsState()
     val watchHistory by viewModel.watchHistory.collectAsState()
+    val downloads by viewModel.downloads.collectAsState()
     val gridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
 
+    var favoritesSubTab by remember { mutableIntStateOf(0) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
 
     // Double-Back & Tab Back Handler (matching js/navigation/double-back.js and js/app.js)
@@ -367,7 +382,7 @@ fun HomeScreen(
                                 HomeTab.TVSHOWS -> "Phim bộ & TV Show"
                                 HomeTab.TRENDING -> "Phim đang thịnh hành"
                                 HomeTab.RECOMMENDED -> "Phim đề xuất cho bạn"
-                                HomeTab.FAVORITES -> "Danh sách của tôi"
+                                HomeTab.FAVORITES -> "Phim đã lưu"
                                 HomeTab.HISTORY -> "Lịch sử xem phim"
                                 HomeTab.GENRE -> "Thể loại: ${state.activeGenre?.name ?: ""}"
                                 HomeTab.SEARCH -> "Kết quả tìm kiếm: \"${state.searchQuery}\""
@@ -377,7 +392,7 @@ fun HomeScreen(
                                 state.isLoadingTab -> "Đang tải danh sách phim..."
                                 state.errorMessage != null -> "Không thể tải danh sách phim. ${state.errorMessage}"
                                 state.gridMovies.isEmpty() -> when (state.activeTab) {
-                                    HomeTab.FAVORITES -> "Chưa có phim nào trong danh sách của bạn. Hãy chọn ♥ hoặc + Thêm vào danh sách!"
+                                    HomeTab.FAVORITES -> "Chưa có phim nào trong danh sách lưu. Hãy bấm Lưu phim để xem lại bất cứ lúc nào!"
                                     HomeTab.HISTORY -> "Chưa có lịch sử xem phim. Hãy chọn một bộ phim để bắt đầu thưởng thức!"
                                     HomeTab.SEARCH -> "Không tìm thấy phim phù hợp với từ khóa \"${state.searchQuery}\"."
                                     else -> "Hiện không có phim nào trong mục này."
@@ -424,6 +439,56 @@ fun HomeScreen(
                                     onUpdateFilter = { viewModel.updateCatalogFilter(it) },
                                     onResetFilter = { viewModel.resetCatalogFilter() }
                                 )
+
+                                if (state.activeTab == HomeTab.FAVORITES) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val completedCount = downloads.count { it.status == DownloadStatus.COMPLETED }
+                                        val inProgressCount = downloads.count {
+                                            it.status == DownloadStatus.DOWNLOADING || it.status == DownloadStatus.QUEUED || it.status == DownloadStatus.REMUXING
+                                        }
+                                        val dlBadge = when {
+                                            inProgressCount > 0 -> " ($inProgressCount đang tải)"
+                                            completedCount > 0 -> " ($completedCount file)"
+                                            else -> ""
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(if (favoritesSubTab == 0) FlixColors.Red else FlixColors.BgElevated)
+                                                .border(1.dp, if (favoritesSubTab == 0) FlixColors.RedBright else FlixColors.Border, RoundedCornerShape(999.dp))
+                                                .clickable { favoritesSubTab = 0 }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                text = "Đã lưu xem sau (${state.gridMovies.size})",
+                                                color = if (favoritesSubTab == 0) Color.White else FlixColors.TextSecondary,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = if (favoritesSubTab == 0) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(if (favoritesSubTab == 1) FlixColors.Red else FlixColors.BgElevated)
+                                                .border(1.dp, if (favoritesSubTab == 1) FlixColors.RedBright else FlixColors.Border, RoundedCornerShape(999.dp))
+                                                .clickable { favoritesSubTab = 1 }
+                                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                text = "Phim đã tải về (.mp4)$dlBadge",
+                                                color = if (favoritesSubTab == 1) Color.White else FlixColors.TextSecondary,
+                                                fontSize = 12.5.sp,
+                                                fontWeight = if (favoritesSubTab == 1) FontWeight.Bold else FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                }
 
                                 if (state.activeTab == HomeTab.SEARCH && state.searchSuggestions.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(10.dp))
@@ -482,7 +547,7 @@ fun HomeScreen(
                                     }
                                 }
 
-                                if (state.gridMovies.isEmpty()) {
+                                if (state.gridMovies.isEmpty() && !(state.activeTab == HomeTab.FAVORITES && favoritesSubTab == 1)) {
                                     Spacer(modifier = Modifier.height(18.dp))
                                     Text(
                                         text = statusMessage,
@@ -493,23 +558,70 @@ fun HomeScreen(
                             }
                         }
 
-                        // Catalog Grid Cards
-                        itemsIndexed(
-                            items = state.gridMovies,
-                            key = { idx, m -> "grid_${m.effectiveKey}_$idx" }
-                        ) { _, movie ->
-                            CatalogMovieCard(
-                                movie = movie,
-                                isFavorite = favoriteKeys.contains(movie.effectiveKey),
-                                onClick = {
-                                    if (state.activeTab == HomeTab.HISTORY) {
-                                        viewModel.resumeHistoryItem(movie)
-                                    } else {
-                                        viewModel.openMovieOrPlay(movie)
+                        // Catalog Grid Cards or Downloaded Items
+                        if (state.activeTab == HomeTab.FAVORITES && favoritesSubTab == 1) {
+                            if (downloads.isEmpty()) {
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 40.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = null,
+                                            tint = FlixColors.TextMuted,
+                                            modifier = Modifier.size(52.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(14.dp))
+                                        Text(
+                                            text = "Chưa có phim nào được tải về máy.",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color.White
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "Hãy bấm nút \"Tải về máy (.mp4)\" ở trang chi tiết phim hoặc trình phát để lưu xem khi không có mạng!",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = FlixColors.TextSecondary,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(horizontal = 24.dp)
+                                        )
                                     }
-                                },
-                                onToggleFavorite = { viewModel.toggleFavorite(movie) }
-                            )
+                                }
+                            } else {
+                                itemsIndexed(
+                                    items = downloads,
+                                    key = { _, dl -> "dl_${dl.id}" }
+                                ) { _, dlItem ->
+                                    DownloadedMovieCard(
+                                        item = dlItem,
+                                        onPlay = { viewModel.playDownloadedMovie(dlItem) },
+                                        onDelete = { viewModel.deleteDownload(dlItem.id) },
+                                        onCancel = { viewModel.cancelDownload(dlItem.id) }
+                                    )
+                                }
+                            }
+                        } else {
+                            // Catalog Grid Cards
+                            itemsIndexed(
+                                items = state.gridMovies,
+                                key = { idx, m -> "grid_${m.effectiveKey}_$idx" }
+                            ) { _, movie ->
+                                CatalogMovieCard(
+                                    movie = movie,
+                                    isFavorite = favoriteKeys.contains(movie.effectiveKey),
+                                    onClick = {
+                                        if (state.activeTab == HomeTab.HISTORY) {
+                                            viewModel.resumeHistoryItem(movie)
+                                        } else {
+                                            viewModel.openMovieOrPlay(movie)
+                                        }
+                                    },
+                                    onToggleFavorite = { viewModel.toggleFavorite(movie) }
+                                )
+                            }
                         }
 
                         // Loading more spinner
@@ -565,6 +677,11 @@ fun HomeScreen(
                 errorMessage = state.detailError,
                 isFavorite = favoriteKeys.contains(modalMovie.effectiveKey),
                 resumeInfoProvider = { slug, epIdx -> viewModel.getEpisodeResumeInfo(slug, epIdx) },
+                downloads = downloads,
+                onStartDownload = { m, ep -> viewModel.startDownload(m, ep) },
+                onCancelDownload = { id -> viewModel.cancelDownload(id) },
+                onDeleteDownload = { id -> viewModel.deleteDownload(id) },
+                onPlayDownloadedMovie = { item -> viewModel.playDownloadedMovie(item) },
                 onRetry = { viewModel.retryLoadDetail() },
                 onClose = { viewModel.closeMovieDetail() },
                 onToggleFavorite = { viewModel.toggleFavorite(it) },
@@ -771,7 +888,20 @@ private fun HomeTopHeader(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    if (searchQuery.isEmpty()) {
+                    var textFieldValue by remember {
+                        mutableStateOf(TextFieldValue(searchQuery, TextRange(searchQuery.length)))
+                    }
+
+                    LaunchedEffect(searchQuery) {
+                        if (searchQuery != textFieldValue.text) {
+                            textFieldValue = TextFieldValue(
+                                text = searchQuery,
+                                selection = TextRange(searchQuery.length)
+                            )
+                        }
+                    }
+
+                    if (textFieldValue.text.isEmpty()) {
                         Text(
                             text = if (isSearchActive || isWideScreen) "Tìm phim, diễn viên..." else "Tìm kiếm...",
                             color = FlixColors.TextMuted,
@@ -781,8 +911,13 @@ private fun HomeTopHeader(
                         )
                     }
                     BasicTextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChange,
+                        value = textFieldValue,
+                        onValueChange = { newValue ->
+                            textFieldValue = newValue
+                            if (newValue.text != searchQuery) {
+                                onSearchQueryChange(newValue.text)
+                            }
+                        },
                         singleLine = true,
                         textStyle = TextStyle(
                             color = Color.White,
@@ -898,7 +1033,7 @@ private fun HomeTopHeader(
             ) {
                 Icon(
                     imageVector = Icons.Default.Person,
-                    contentDescription = "Danh sách của tôi",
+                    contentDescription = "Phim đã lưu",
                     tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
@@ -943,7 +1078,7 @@ private fun AppSidebar(
         Triple(HomeTab.MOVIES, "Phim", Icons.Default.Movie),
         Triple(HomeTab.TVSHOWS, "TV Show", Icons.Default.Tv),
         Triple(HomeTab.TRENDING, "Thịnh hành", Icons.Default.Whatshot),
-        Triple(HomeTab.FAVORITES, "Danh sách", Icons.Default.Bookmark),
+        Triple(HomeTab.FAVORITES, "Phim đã lưu", Icons.Default.Bookmark),
         Triple(HomeTab.HISTORY, "Lịch sử", Icons.Default.History)
     )
 
@@ -1032,7 +1167,7 @@ private fun MobileBottomNavBar(
         Triple(HomeTab.NEW, "Trang chủ", Icons.Default.Home),
         Triple(HomeTab.MOVIES, "Phim", Icons.Default.Movie),
         Triple(HomeTab.TVSHOWS, "TV Show", Icons.Default.Tv),
-        Triple(HomeTab.FAVORITES, "Danh sách", Icons.Default.Bookmark),
+        Triple(HomeTab.FAVORITES, "Phim đã lưu", Icons.Default.Bookmark),
         Triple(HomeTab.HISTORY, "Lịch sử", Icons.Default.History)
     )
 

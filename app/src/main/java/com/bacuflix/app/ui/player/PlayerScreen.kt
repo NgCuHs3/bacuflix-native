@@ -52,11 +52,15 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.FileDownloadDone
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Headphones
@@ -142,6 +146,13 @@ private val AppleGlassHighlightBorder = Color(0x8CFFFFFF)
 @Composable
 fun PlayerScreen(
     initialMovie: Movie,
+    isFavorite: Boolean = false,
+    isDownloaded: Boolean = false,
+    isDownloading: Boolean = false,
+    downloadProgress: Int = 0,
+    onToggleFavorite: (Movie) -> Unit = {},
+    onStartDownload: (Movie) -> Unit = {},
+    onCancelDownload: (String) -> Unit = {},
     onGetEpisodeResume: (slug: String, epIndex: Int) -> EpisodeResumeInfo?,
     onSaveProgress: (movie: Movie, currentSec: Int, durationSec: Int) -> Unit,
     onRecordPlayInteraction: (movie: Movie) -> Unit,
@@ -1428,6 +1439,57 @@ fun PlayerScreen(
                                     contentDescription = "Khóa màn hình",
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                        // Save / Bookmark Film Button
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    onToggleFavorite(currentMovie)
+                                    lastInteractionTick++
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = if (isFavorite) "Bỏ lưu phim" else "Lưu phim",
+                                tint = if (isFavorite) FlixColors.RedBright else Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        // Download MP4 Button
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    if (isDownloaded) {
+                                        onShowToast("Phim này đã được tải về máy dưới dạng MP4")
+                                    } else if (isDownloading) {
+                                        onShowToast("Đang tải phim: $downloadProgress%")
+                                    } else {
+                                        onStartDownload(currentMovie)
+                                    }
+                                    lastInteractionTick++
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isDownloading) {
+                                CircularProgressIndicator(
+                                    progress = { downloadProgress / 100f },
+                                    modifier = Modifier.size(18.dp),
+                                    color = FlixColors.RedBright,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (isDownloaded) Icons.Default.FileDownloadDone else Icons.Default.Download,
+                                    contentDescription = if (isDownloaded) "Đã tải MP4" else "Tải về máy (.mp4)",
+                                    tint = if (isDownloaded) Color(0xFF10B981) else Color.White,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }

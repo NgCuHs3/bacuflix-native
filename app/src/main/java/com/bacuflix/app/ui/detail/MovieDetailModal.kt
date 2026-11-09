@@ -27,9 +27,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.FileDownloadDone
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -37,6 +41,9 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import com.bacuflix.app.download.DownloadItem
+import com.bacuflix.app.download.DownloadStatus
+import com.bacuflix.app.model.EpisodeItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -92,6 +99,11 @@ fun MovieDetailModal(
     errorMessage: String?,
     isFavorite: Boolean,
     resumeInfoProvider: (slug: String, episodeIndex: Int?) -> EpisodeResumeInfo?,
+    downloads: List<DownloadItem> = emptyList(),
+    onStartDownload: (Movie, EpisodeItem?) -> Unit = { _, _ -> },
+    onCancelDownload: (String) -> Unit = {},
+    onDeleteDownload: (String) -> Unit = {},
+    onPlayDownloadedMovie: (DownloadItem) -> Unit = {},
     onRetry: () -> Unit,
     onClose: () -> Unit,
     onToggleFavorite: (Movie) -> Unit,
@@ -413,25 +425,113 @@ fun MovieDetailModal(
                                     }
                                 }
 
+                                val isMovieSaved = isFavorite ||
+                                    favoriteKeys.contains(movie.effectiveKey) ||
+                                    favoriteKeys.contains(movie.slug) ||
+                                    favoriteKeys.contains(movie.id) ||
+                                    favoriteKeys.contains(moviePreview.effectiveKey)
+
                                 OutlinedButton(
                                     onClick = { onToggleFavorite(movie) },
                                     shape = RoundedCornerShape(10.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = FlixColors.BgElevated,
+                                        containerColor = if (isMovieSaved) Color(0x33E50914) else FlixColors.BgElevated,
                                         contentColor = Color.White
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isMovieSaved) FlixColors.RedBright else FlixColors.Border
                                     )
                                 ) {
                                     Icon(
-                                        imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        imageVector = if (isMovieSaved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                         contentDescription = null,
-                                        tint = if (isFavorite) FlixColors.RedBright else Color.White,
+                                        tint = if (isMovieSaved) FlixColors.RedBright else Color.White,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = if (isFavorite) "Đã yêu thích" else "Thêm vào yêu thích",
+                                        text = if (isMovieSaved) "Đã lưu phim" else "Lưu phim",
                                         fontWeight = FontWeight.SemiBold
                                     )
+                                }
+
+                                // Download MP4 Button
+                                val currentEp = episodes.firstOrNull()
+                                val epIdx = currentEp?.index ?: 0
+                                val downloadItem = downloads.firstOrNull {
+                                    it.movieKey == movie.effectiveKey && it.episodeIndex == epIdx
+                                }
+                                val isDownloaded = downloadItem?.status == DownloadStatus.COMPLETED
+                                val isDownloading = downloadItem?.status == DownloadStatus.DOWNLOADING ||
+                                    downloadItem?.status == DownloadStatus.QUEUED ||
+                                    downloadItem?.status == DownloadStatus.REMUXING
+
+                                OutlinedButton(
+                                    onClick = {
+                                        if (isDownloaded && downloadItem != null) {
+                                            onPlayDownloadedMovie(downloadItem)
+                                        } else if (isDownloading && downloadItem != null) {
+                                            onCancelDownload(downloadItem.id)
+                                        } else {
+                                            onStartDownload(movie, currentEp)
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = when {
+                                            isDownloaded -> Color(0x3310B981)
+                                            isDownloading -> Color(0x33E50914)
+                                            else -> FlixColors.BgElevated
+                                        },
+                                        contentColor = Color.White
+                                    ),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        when {
+                                            isDownloaded -> Color(0xFF10B981)
+                                            isDownloading -> FlixColors.RedBright
+                                            else -> FlixColors.Border
+                                        }
+                                    )
+                                ) {
+                                    if (isDownloading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = FlixColors.RedBright,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (downloadItem?.status == DownloadStatus.REMUXING) "Lưu MP4..." else "Đang tải ${downloadItem?.progressPercent ?: 0}%",
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    } else if (isDownloaded) {
+                                        Icon(
+                                            imageVector = Icons.Default.FileDownloadDone,
+                                            contentDescription = null,
+                                            tint = Color(0xFF10B981),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Xem offline (.mp4)",
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFF10B981)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Tải về máy (.mp4)",
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 }
 
                                 OutlinedButton(

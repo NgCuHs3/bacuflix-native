@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -359,7 +361,7 @@ fun HeroCarousel(
                         }
 
                         if (isCompact) {
-                            // Compact Circular "Thêm vào" Button with caption (matching css/home.css mobile)
+                            // Compact "Lưu phim" Button with caption
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier.clickable { onToggleFavorite(activeMovie) }
@@ -368,52 +370,21 @@ fun HeroCarousel(
                                     modifier = Modifier
                                         .size(42.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0x8C3A3A3C))
-                                        .border(1.dp, FlixColors.Border, CircleShape),
+                                        .background(if (isFav) Color(0x33E50914) else Color(0x8C3A3A3C))
+                                        .border(1.dp, if (isFav) FlixColors.RedBright else FlixColors.Border, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = if (isFav) Icons.Default.Check else Icons.Default.Add,
-                                        contentDescription = if (isFav) "Đã trong danh sách" else "Thêm vào danh sách",
-                                        tint = Color.White,
+                                        imageVector = if (isFav) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        contentDescription = if (isFav) "Bỏ lưu phim" else "Lưu phim",
+                                        tint = if (isFav) FlixColors.RedBright else Color.White,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(3.dp))
                                 Text(
-                                    text = if (isFav) "Đã lưu" else "Thêm vào",
-                                    color = FlixColors.TextSecondary,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-
-                            // Compact Circular "Yêu thích" Button with caption
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.clickable { onToggleFavorite(activeMovie) }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x8C3A3A3C))
-                                        .border(1.dp, FlixColors.Border, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = if (isFav) "Bỏ yêu thích" else "Thêm yêu thích",
-                                        tint = if (isFav) FlixColors.RedBright else Color.White,
-                                        modifier = Modifier.size(19.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(
-                                    text = "Yêu thích",
-                                    color = FlixColors.TextSecondary,
+                                    text = if (isFav) "Đã lưu" else "Lưu phim",
+                                    color = if (isFav) FlixColors.RedBright else FlixColors.TextSecondary,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     maxLines = 1,
@@ -421,44 +392,33 @@ fun HeroCarousel(
                                 )
                             }
                         } else {
-                            // Wide screen / TV buttons
+                            // Wide screen / TV button
                             OutlinedButton(
                                 onClick = { onToggleFavorite(activeMovie) },
                                 shape = RoundedCornerShape(999.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = Color(0x8C3A3A3C),
+                                    containerColor = if (isFav) Color(0x33E50914) else Color(0x8C3A3A3C),
                                     contentColor = Color.White
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isFav) FlixColors.RedBright else FlixColors.Border
                                 ),
                                 modifier = Modifier.height(44.dp)
                             ) {
                                 Icon(
-                                    imageVector = if (isFav) Icons.Default.Check else Icons.Default.Add,
+                                    imageVector = if (isFav) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                     contentDescription = null,
+                                    tint = if (isFav) FlixColors.RedBright else Color.White,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (isFav) "Đã trong danh sách" else "Thêm vào danh sách",
+                                    text = if (isFav) "Đã lưu phim" else "Lưu phim",
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 13.5.sp,
                                     maxLines = 1,
                                     softWrap = false
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { onToggleFavorite(activeMovie) },
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0x8C3A3A3C))
-                                    .border(1.dp, FlixColors.Border, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    contentDescription = if (isFav) "Bỏ yêu thích" else "Thêm yêu thích",
-                                    tint = if (isFav) FlixColors.RedBright else Color.White,
-                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }

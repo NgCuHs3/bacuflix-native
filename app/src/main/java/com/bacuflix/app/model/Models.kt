@@ -160,7 +160,7 @@ enum class HomeTab(val id: String, val label: String) {
     NEW("new", "Trang chủ"),
     MOVIES("movies", "Phim"),
     TVSHOWS("tvshows", "TV Show"),
-    FAVORITES("favorites", "Danh sách của tôi"),
+    FAVORITES("favorites", "Phim đã lưu"),
     TRENDING("trending", "Thịnh hành"),
     HISTORY("history", "Lịch sử"),
     RECOMMENDED("recommended", "Phim đề xuất"),

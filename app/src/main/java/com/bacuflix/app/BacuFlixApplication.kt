@@ -7,10 +7,15 @@ import com.bacuflix.app.data.GoogleTrendingService
 import com.bacuflix.app.data.KkphimApiService
 import com.bacuflix.app.data.MlRecommendationService
 import com.bacuflix.app.data.WatchHistoryRepository
+import com.bacuflix.app.download.MovieDownloadManager
 
 class BacuFlixApplication : Application() {
     val kkphimApi: KkphimApiService by lazy {
         KkphimApiService()
+    }
+
+    val movieDownloadManager: MovieDownloadManager by lazy {
+        MovieDownloadManager.getInstance(this)
     }
 
     val catalogRepository: CatalogRepository by lazy {

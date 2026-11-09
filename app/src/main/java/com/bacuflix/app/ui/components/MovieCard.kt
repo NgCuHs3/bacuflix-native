@@ -19,13 +19,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.bacuflix.app.download.DownloadItem
+import com.bacuflix.app.download.DownloadStatus
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -141,7 +148,7 @@ fun CatalogMovieCard(
                 }
             }
 
-            // Top-right Favorite button
+            // Top-right Save / Bookmark button
             IconButton(
                 onClick = onToggleFavorite,
                 modifier = Modifier
@@ -152,10 +159,10 @@ fun CatalogMovieCard(
                     .background(Color(0x9908090D))
             ) {
                 Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Bỏ yêu thích" else "Thêm yêu thích",
+                    imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                    contentDescription = if (isFavorite) "Bỏ lưu phim" else "Lưu phim",
                     tint = if (isFavorite) FlixColors.RedBright else Color.White,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(17.dp)
                 )
             }
         }
@@ -312,7 +319,7 @@ fun CarouselPosterCard(
             )
         }
 
-        // Favorite Heart
+        // Save / Bookmark button
         IconButton(
             onClick = onToggleFavorite,
             modifier = Modifier
@@ -323,10 +330,10 @@ fun CarouselPosterCard(
                 .background(Color(0x9908090D))
         ) {
             Icon(
-                imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                contentDescription = if (isFavorite) "Bỏ yêu thích" else "Thêm yêu thích",
+                imageVector = if (isFavorite) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                contentDescription = if (isFavorite) "Bỏ lưu phim" else "Lưu phim",
                 tint = if (isFavorite) FlixColors.RedBright else Color.White,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(16.dp)
             )
         }
 
@@ -379,6 +386,169 @@ fun CarouselPosterCard(
                     fontSize = 11.sp
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun DownloadedMovieCard(
+    item: DownloadItem,
+    onPlay: () -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+    val isDone = item.status == DownloadStatus.COMPLETED
+
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(FlixColors.BgCard)
+            .border(
+                width = if (isFocused) 2.5.dp else 1.dp,
+                color = if (isFocused) Color.White else FlixColors.Border,
+                shape = shape
+            )
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .clickable(enabled = isDone, onClick = onPlay)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+        ) {
+            AsyncImagePoster(
+                url = item.posterUrl,
+                alternateUrl = item.thumbUrl,
+                contentDescription = item.movieTitle,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Gradient shade
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color(0x5508090D),
+                                Color(0xEE08090D)
+                            )
+                        )
+                    )
+            )
+
+            // Top-left MP4 Badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isDone) Color(0xFF10B981) else FlixColors.Red)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (isDone) "MP4" else "${item.progressPercent}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Top-right Delete or Cancel button
+            IconButton(
+                onClick = { if (isDone) onDelete() else onCancel() },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(Color(0x9908090D))
+            ) {
+                Icon(
+                    imageVector = if (isDone) Icons.Default.Delete else Icons.Default.Close,
+                    contentDescription = if (isDone) "Xóa file MP4" else "Hủy tải",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            // Center Play Icon if completed
+            if (isDone) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x8C000000))
+                        .border(1.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Phát offline",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            } else {
+                // Downloading progress indicator
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        progress = { item.progressPercent / 100f },
+                        modifier = Modifier.size(38.dp),
+                        color = FlixColors.RedBright,
+                        strokeWidth = 3.dp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "${item.progressPercent}%",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Info
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+                text = item.movieTitle,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val subText = when {
+                isDone -> {
+                    val sizeStr = FormatTime.formatBytes(item.downloadedBytes)
+                    val ep = if (item.episodeName.isNotBlank()) "${item.episodeName} • " else ""
+                    "${ep}$sizeStr • Xem offline"
+                }
+                item.status == DownloadStatus.REMUXING -> "Đang lưu file MP4..."
+                else -> {
+                    val speed = if (item.speedText.isNotBlank()) " • ${item.speedText}" else ""
+                    "${FormatTime.formatBytes(item.downloadedBytes)}$speed"
+                }
+            }
+            Text(
+                text = subText,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isDone) Color(0xFF10B981) else FlixColors.TextSecondary,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

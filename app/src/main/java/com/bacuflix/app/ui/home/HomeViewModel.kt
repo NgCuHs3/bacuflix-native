@@ -7,7 +7,10 @@ import com.bacuflix.app.BacuFlixApplication
 import com.bacuflix.app.data.FavoritesRepository
 import com.bacuflix.app.data.MlRecommendationService
 import com.bacuflix.app.data.SmartSearchEngine
+import com.bacuflix.app.download.DownloadItem
+import com.bacuflix.app.download.MovieDownloadManager
 import com.bacuflix.app.model.CatalogFilterState
+import com.bacuflix.app.model.EpisodeItem
 import com.bacuflix.app.model.EpisodeResumeInfo
 import com.bacuflix.app.model.FilterSortOrder
 import com.bacuflix.app.model.GenreCategory
@@ -71,6 +74,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     val favoriteKeys: StateFlow<Set<String>> = favoritesRepo.favoriteKeys
     val watchHistory: StateFlow<List<Movie>> = watchHistoryRepo.history
+    val downloadManager: MovieDownloadManager = app.movieDownloadManager
+    val downloads: StateFlow<List<DownloadItem>> = downloadManager.downloads
 
     private var loadTabJob: Job? = null
     private var searchDebounceJob: Job? = null
@@ -308,14 +313,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     fun onSearchQueryChanged(newQuery: String) {
         _uiState.value = _uiState.value.copy(searchQuery = newQuery)
         searchDebounceJob?.cancel()
-        val trimmed = newQuery.trim()
-        if (trimmed.isEmpty()) {
+        if (newQuery.isEmpty()) {
             _uiState.value = _uiState.value.copy(
                 searchSuggestions = SmartSearchEngine.DEFAULT_TRENDING_KEYWORDS
             )
             if (_uiState.value.activeTab == HomeTab.SEARCH) {
                 switchTab(_uiState.value.previousTab, keepKeyboardOpen = _uiState.value.isTvKeyboardOpen)
             }
+            return
+        }
+
+        val trimmed = newQuery.trim()
+        if (trimmed.isEmpty()) {
+            // User typed whitespace(s). Do not clear tab and do not execute empty search.
             return
         }
 
@@ -350,11 +360,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             delay(220L)
-            executeSearch(trimmed)
+            executeSearch(trimmed, updateSearchQuery = false)
         }
     }
 
-    fun executeSearch(keyword: String) {
+    fun executeSearch(keyword: String, updateSearchQuery: Boolean = true) {
         val kw = keyword.trim()
         if (kw.isEmpty()) return
         mlRecommendationService.recordSearchQuery(kw)
@@ -368,7 +378,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(
             activeTab = HomeTab.SEARCH,
             previousTab = prev,
-            searchQuery = kw,
+            searchQuery = if (updateSearchQuery) kw else _uiState.value.searchQuery,
             currentPage = 1,
             hasMorePages = true,
             gridMovies = cachedRes?.movies ?: _uiState.value.gridMovies,
@@ -598,9 +608,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.activeTab == HomeTab.FAVORITES) {
             _uiState.value = _uiState.value.copy(gridMovies = favoritesRepo.getAll())
         }
-        showToast(if (isNowFav) "Đã thêm \"${movie.title}\" vào danh sách" else "Đã xóa khỏi danh sách")
+        showToast(if (isNowFav) "Đã lưu phim \"${movie.title}\"" else "Đã xóa \"${movie.title}\" khỏi danh sách lưu")
         refreshMlRecommendations()
     }
+
+    fun isMovieFavorite(movie: Movie): Boolean = favoritesRepo.isFavorite(movie)
 
     fun removeWatchHistory(movie: Movie) {
         watchHistoryRepo.removeWatchHistory(movie.effectiveKey)
@@ -883,5 +895,30 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             delay(2500L)
             _uiState.value = _uiState.value.copy(toastMessage = null)
         }
+    }
+
+    fun startDownload(movie: Movie, episode: EpisodeItem? = null) {
+        val ok = downloadManager.startDownload(movie, episode)
+        if (ok) {
+            val epName = episode?.name ?: movie.episodeName
+            val suffix = if (epName.isNotBlank()) " ($epName)" else ""
+            showToast("Bắt đầu tải: ${movie.title}$suffix về máy (.mp4)")
+        } else {
+            showToast("Không tìm thấy link video để tải xuống.")
+        }
+    }
+
+    fun cancelDownload(downloadId: String) {
+        downloadManager.cancelDownload(downloadId)
+        showToast("Đã hủy tải phim.")
+    }
+
+    fun deleteDownload(downloadId: String) {
+        downloadManager.deleteDownload(downloadId)
+        showToast("Đã xóa file video khỏi máy.")
+    }
+
+    fun playDownloadedMovie(item: DownloadItem) {
+        startPlayer(item.toMovie())
     }
 }

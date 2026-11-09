@@ -311,6 +311,39 @@ class BacuFlixUnitTests {
         assertTrue("Unaccented search 'nguoi nhen' must strongly match 'Người Nhện'", scoreUnaccented >= 400.0)
     }
 
+    @Test
+    fun testFavoritesRepositoryKeySanitization() {
+        assertEquals("avatar-2", com.bacuflix.app.data.FavoritesRepository.sanitizeApiSlug("avatar-2"))
+        assertEquals("", com.bacuflix.app.data.FavoritesRepository.sanitizeApiSlug("movie-123"))
+        assertEquals("avatar-2", com.bacuflix.app.data.FavoritesRepository.normalizeMovieKey("avatar-2", "id-999"))
+        assertEquals("movie-abc", com.bacuflix.app.data.FavoritesRepository.normalizeMovieKey("", "movie-abc-1"))
+        assertEquals("custom-id", com.bacuflix.app.data.FavoritesRepository.normalizeMovieKey("", "custom-id"))
+    }
+
+    @Test
+    fun testFormatBytesAndDownloadItemToMovie() {
+        assertEquals("0 B", FormatTime.formatBytes(0L))
+        assertEquals("500 B", FormatTime.formatBytes(500L))
+        assertEquals("500 KB", FormatTime.formatBytes(500L * 1024L))
+        assertEquals("100.0 MB", FormatTime.formatBytes(100L * 1024L * 1024L))
+        assertEquals("1.50 GB", FormatTime.formatBytes((1.5 * 1024 * 1024 * 1024).toLong()))
+
+        val downloadItem = com.bacuflix.app.download.DownloadItem(
+            id = "avatar-2_0",
+            movieKey = "avatar-2",
+            movieTitle = "Avatar: Dòng Chảy Của Nước",
+            episodeName = "Full",
+            localFilePath = "/data/user/0/com.bacuflix.app/movies/Avatar.mp4",
+            status = com.bacuflix.app.download.DownloadStatus.COMPLETED
+        )
+        val movie = downloadItem.toMovie()
+        assertEquals("avatar-2_0", movie.id)
+        assertEquals("avatar-2", movie.slug)
+        assertEquals("/data/user/0/com.bacuflix.app/movies/Avatar.mp4", movie.m3u8)
+        assertTrue(movie.playbackEnabled)
+        assertEquals("Đã tải về (.mp4)", movie.source)
+    }
+
     private fun buildPngChunk(type: String, data: ByteArray): ByteArray {
         val typeBytes = type.toByteArray(Charsets.US_ASCII)
         val crc = CRC32()

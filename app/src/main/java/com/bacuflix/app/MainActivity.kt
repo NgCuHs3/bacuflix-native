@@ -44,6 +44,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             BACUFlixTheme {
                 val uiState by homeViewModel.uiState.collectAsState()
+                val favoriteKeys by homeViewModel.favoriteKeys.collectAsState()
+                val downloads by homeViewModel.downloads.collectAsState()
                 val activePlayerMovie = uiState.activePlayerMovie
 
                 Surface(
@@ -51,8 +53,33 @@ class MainActivity : ComponentActivity() {
                     color = FlixColors.BgPrimary
                 ) {
                     if (activePlayerMovie != null) {
+                        val isPlayerMovieSaved = favoriteKeys.contains(activePlayerMovie.effectiveKey) ||
+                            favoriteKeys.contains(activePlayerMovie.slug) ||
+                            favoriteKeys.contains(activePlayerMovie.id)
+
+                        val activeDownloadItem = downloads.firstOrNull {
+                            it.movieKey == activePlayerMovie.effectiveKey && it.episodeIndex == activePlayerMovie.currentEpisodeIndex
+                        }
+                        val isPlayerMovieDownloaded = activeDownloadItem?.status == com.bacuflix.app.download.DownloadStatus.COMPLETED
+                        val isPlayerMovieDownloading = activeDownloadItem?.status == com.bacuflix.app.download.DownloadStatus.DOWNLOADING ||
+                            activeDownloadItem?.status == com.bacuflix.app.download.DownloadStatus.QUEUED ||
+                            activeDownloadItem?.status == com.bacuflix.app.download.DownloadStatus.REMUXING
+
                         PlayerScreen(
                             initialMovie = activePlayerMovie,
+                            isFavorite = isPlayerMovieSaved,
+                            isDownloaded = isPlayerMovieDownloaded,
+                            isDownloading = isPlayerMovieDownloading,
+                            downloadProgress = activeDownloadItem?.progressPercent ?: 0,
+                            onToggleFavorite = { movie ->
+                                homeViewModel.toggleFavorite(movie)
+                            },
+                            onStartDownload = { movie ->
+                                homeViewModel.startDownload(movie)
+                            },
+                            onCancelDownload = { id ->
+                                homeViewModel.cancelDownload(id)
+                            },
                             onGetEpisodeResume = { slug, epIdx ->
                                 homeViewModel.getEpisodeResumeInfo(slug, epIdx)
                             },
