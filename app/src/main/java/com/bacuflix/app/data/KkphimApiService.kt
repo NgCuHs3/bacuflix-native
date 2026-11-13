@@ -27,7 +27,44 @@ class KkphimApiService {
     companion object {
         const val PROXY_BASE_URL = "https://bacuflix-proxy.vercel.app"
         const val ORIGINAL_BASE_URL = "https://phimapi.com"
-        const val BASE_URL = PROXY_BASE_URL
+
+        @Volatile
+        var activeBaseUrl: String = ORIGINAL_BASE_URL
+
+        val BASE_URL: String
+            get() = activeBaseUrl
+
+        /**
+         * Pings the original movie server (phimapi.com).
+         * If reachable, uses ORIGINAL_BASE_URL.
+         * If unreachable or blocked by ISP DNS, switches to PROXY_BASE_URL.
+         */
+        fun pingUpstreamServer(timeoutMs: Int = 2000): String {
+            return try {
+                val conn = (URL("$ORIGINAL_BASE_URL/v1/api/home").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = timeoutMs
+                    readTimeout = timeoutMs
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("User-Agent", BROWSER_UA)
+                }
+                try {
+                    val code = conn.responseCode
+                    if (code in 200..299) {
+                        activeBaseUrl = ORIGINAL_BASE_URL
+                        ORIGINAL_BASE_URL
+                    } else {
+                        activeBaseUrl = PROXY_BASE_URL
+                        PROXY_BASE_URL
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (_: Exception) {
+                activeBaseUrl = PROXY_BASE_URL
+                PROXY_BASE_URL
+            }
+        }
         const val DEFAULT_CDN = "https://phimimg.com"
         const val VSMOV_BASE_URL = "https://vsmov.com/api"
         const val VSMOV_CDN = "https://vsmov.com"
@@ -770,20 +807,41 @@ class KkphimApiService {
     }
 
     private fun fetchJson(urlString: String, timeoutMs: Int = REQUEST_TIMEOUT_MS): JSONObject {
-        val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
+        val targetUrl = if (activeBaseUrl == PROXY_BASE_URL && urlString.startsWith(ORIGINAL_BASE_URL)) {
+            urlString.replace(ORIGINAL_BASE_URL, PROXY_BASE_URL)
+        } else {
+            urlString
+        }
+
+        val conn = (URL(targetUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = timeoutMs
             readTimeout = timeoutMs
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "BACUFlix-Android/3.0")
+            setRequestProperty("User-Agent", BROWSER_UA)
         }
         try {
             val code = conn.responseCode
             if (code !in 200..299) {
+                // If original server returned error code, automatically fallback to proxy and retry
+                if (activeBaseUrl == ORIGINAL_BASE_URL && targetUrl.startsWith(ORIGINAL_BASE_URL)) {
+                    activeBaseUrl = PROXY_BASE_URL
+                    val fallbackUrl = targetUrl.replace(ORIGINAL_BASE_URL, PROXY_BASE_URL)
+                    return fetchJson(fallbackUrl, timeoutMs)
+                }
                 throw IllegalStateException("API trả về mã lỗi HTTP $code")
             }
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             return JSONObject(body)
+        } catch (e: Exception) {
+            // Auto fallback: If request failed on ORIGINAL_BASE_URL (DNS blocked, timeout, network error),
+            // seamlessly switch to PROXY_BASE_URL and retry once immediately.
+            if (activeBaseUrl == ORIGINAL_BASE_URL && targetUrl.startsWith(ORIGINAL_BASE_URL)) {
+                activeBaseUrl = PROXY_BASE_URL
+                val fallbackUrl = targetUrl.replace(ORIGINAL_BASE_URL, PROXY_BASE_URL)
+                return fetchJson(fallbackUrl, timeoutMs)
+            }
+            throw e
         } finally {
             conn.disconnect()
         }

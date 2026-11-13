@@ -8,8 +8,18 @@ import com.bacuflix.app.data.KkphimApiService
 import com.bacuflix.app.data.MlRecommendationService
 import com.bacuflix.app.data.WatchHistoryRepository
 import com.bacuflix.app.download.MovieDownloadManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class BacuFlixApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Ping original movie server on startup, automatically fallback to proxy if unreachable or blocked
+        CoroutineScope(Dispatchers.IO).launch {
+            KkphimApiService.pingUpstreamServer()
+        }
+    }
     val kkphimApi: KkphimApiService by lazy {
         KkphimApiService()
     }
