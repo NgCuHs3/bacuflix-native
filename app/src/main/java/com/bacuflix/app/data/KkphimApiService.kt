@@ -72,16 +72,37 @@ class KkphimApiService {
             return ""
         }
 
+        private val DOMESTIC_STREAM_HOSTS = listOf(
+            "phim1280.tv",
+            "kvp726.com",
+            "kkphimplayer6.com",
+            "apiaz.xyz",
+            "abfedgecanme.com",
+            "streamc.xyz",
+            "streamvsmov.com",
+            "vsmov.com",
+            "opstream.com",
+            "opstream1.com",
+            "opstream2.com",
+            "opstream3.com",
+            "bytefury.top"
+        )
+
+        fun isDomesticStream(url: String?): Boolean {
+            val clean = url?.trim()?.lowercase().orEmpty()
+            if (clean.isEmpty()) return false
+            return DOMESTIC_STREAM_HOSTS.any { host -> clean.contains(host) }
+        }
+
         fun resolveStreamUrl(streamUrl: String?): String {
             val clean = streamUrl?.trim().orEmpty()
             if (clean.isEmpty()) return ""
-            if (clean.contains("/api/proxy?url=")) return clean
-            return if (clean.startsWith("http://") || clean.startsWith("https://")) {
-                val proxyBase = BASE_URL.trimEnd('/')
-                "$proxyBase/api/proxy?url=${URLEncoder.encode(clean, "UTF-8")}"
-            } else {
-                clean
+            // Domestic video CDNs enforce strict IP geo-blocking and must connect directly from client devices.
+            // Wrapping them in cloud proxies causes 404 geo-block rejection and breaks PngStrippingDataSource.
+            if (isDomesticStream(clean) || clean.contains("/api/proxy?url=")) {
+                return clean
             }
+            return clean
         }
 
         /**
