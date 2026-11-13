@@ -25,14 +25,16 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class KkphimApiService {
     companion object {
-        const val BASE_URL = "https://phimapi.com"
+        const val PROXY_BASE_URL = "https://bacuflix-proxy.vercel.app"
+        const val ORIGINAL_BASE_URL = "https://phimapi.com"
+        const val BASE_URL = PROXY_BASE_URL
         const val DEFAULT_CDN = "https://phimimg.com"
         const val VSMOV_BASE_URL = "https://vsmov.com/api"
         const val VSMOV_CDN = "https://vsmov.com"
         const val VSMOV_STORAGE_CDN = "https://vsmov.com/storage/images/"
         const val NGUONC_BASE_URL = "https://phim.nguonc.com"
-        private const val REQUEST_TIMEOUT_MS = 4500
-        private const val BACKUP_SOURCE_TIMEOUT_MS = 2200
+        private const val REQUEST_TIMEOUT_MS = 6000
+        private const val BACKUP_SOURCE_TIMEOUT_MS = 2500
         private const val SEARCH_CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
         private const val DETAIL_CACHE_TTL_MS = 15 * 60 * 1000L // 15 minutes
         private const val BROWSER_UA =
@@ -68,6 +70,18 @@ class KkphimApiService {
                 }
             }
             return ""
+        }
+
+        fun resolveStreamUrl(streamUrl: String?): String {
+            val clean = streamUrl?.trim().orEmpty()
+            if (clean.isEmpty()) return ""
+            if (clean.contains("/api/proxy?url=")) return clean
+            return if (clean.startsWith("http://") || clean.startsWith("https://")) {
+                val proxyBase = BASE_URL.trimEnd('/')
+                "$proxyBase/api/proxy?url=${URLEncoder.encode(clean, "UTF-8")}"
+            } else {
+                clean
+            }
         }
 
         /**

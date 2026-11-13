@@ -124,8 +124,9 @@ object SubtitleParser {
 
     suspend fun loadSubtitleFromUrl(subtitleUrl: String?): List<SubtitleCue> = withContext(Dispatchers.IO) {
         if (subtitleUrl.isNullOrBlank()) return@withContext emptyList()
+        val targetUrl = com.bacuflix.app.data.KkphimApiService.resolveStreamUrl(subtitleUrl)
         try {
-            val conn = (URL(subtitleUrl.trim()).openConnection() as HttpURLConnection).apply {
+            val conn = (URL(targetUrl.trim()).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 8000
                 readTimeout = 8000

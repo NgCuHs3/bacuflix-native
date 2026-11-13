@@ -236,15 +236,17 @@ object PlayerController {
             } catch (_: Exception) {}
         }
 
+        val resolvedStreamUrl = com.bacuflix.app.data.KkphimApiService.resolveStreamUrl(streamUrl)
         val mediaItem = MediaItem.Builder()
             .setMediaId(movie.id)
-            .setUri(streamUrl)
+            .setUri(resolvedStreamUrl)
             .setMediaMetadata(metadataBuilder.build())
             .build()
 
         try {
             val isHls = streamUrl.contains(".m3u8", ignoreCase = true) ||
-                streamUrl.contains("streamc.xyz", ignoreCase = true)
+                streamUrl.contains("streamc.xyz", ignoreCase = true) ||
+                resolvedStreamUrl.contains(".m3u8", ignoreCase = true)
             if (isHls) {
                 val hlsSource = HlsMediaSource.Factory(dataSourceFactory)
                     .setAllowChunklessPreparation(true)
